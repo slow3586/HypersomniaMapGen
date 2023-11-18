@@ -26,6 +26,7 @@ import java.util.Random;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.slow3586.Main.Settings.*;
@@ -41,13 +42,19 @@ import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_WALL_ID;
 import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
-    private static final MapTile VIRTUAL_TILE = new MapTile(MapTile.TileType.WALL, 0, false, false);
+    private static final MapTile VIRTUAL_TILE = new MapTile(
+        MapTile.TileType.WALL,
+        0,
+        false,
+        false,
+        0);
+    public static final int WALL_HEIGHT = 4;
     private static boolean randomEnabled = true;
     private static Random random;
 
     public static void main(String[] args) throws IOException {
         //region GENERATION PARAMETERS
-        random = new Random(126);
+        random = new Random(127);
         final String mapName = "new_gen_test";
         final String mapDirectoryPath = "E:\\Games\\hypersomnia\\user\\projects\\new_gen_test";
         final Path mapGfxPath = Paths.get(mapDirectoryPath, "gfx");
@@ -68,9 +75,10 @@ public class Main {
             new Size(0, 0),
             new Size(2, 2));
         final Color ambientLightColor = new Color(110, 180, 220, 220);
-        final Color shadowTint = new Color(255, 255, 255, 100);
-        final Color shadowLineFloorTint = new Color(255, 255, 255, 25);
-        final Color shadowLineWallTint = new Color(255, 255, 255, 55);
+        final Color shadowTintFloor = new Color(255, 255, 255, 40);
+        final Color shadowTintWall = new Color(255, 255, 255, 25);
+        final Color blackLineFloorTint = new Color(255, 255, 255, 20);
+        final Color blackLineWallTint = new Color(255, 255, 255, 20);
         final int maxStyleHeight = 2;
         //endregion
 
@@ -197,7 +205,8 @@ public class Main {
                         MapTile.TileType.FLOOR,
                         null,
                         false,
-                        true))
+                        true,
+                        null))
                     .toArray(MapTile[]::new)
                 ).toArray(MapTile[][]::new);
         //endregion
@@ -266,8 +275,13 @@ public class Main {
                     room.roomSize.h + room.styleSize.h
                 ).stream()
                     .map(pointAbs -> mapTilesUncrop[pointAbs.y][pointAbs.x])
-                    .filter(tile -> tile.styleIndex == null)
-                    .forEach(tile -> tile.styleIndex = room.styleIndex);
+                    .forEach(tile -> {
+                        tile.styleIndex = room.styleIndex;
+                        tile.height = styles[room.styleIndex].height
+                            + (tile.tileType == MapTile.TileType.WALL
+                            ? WALL_HEIGHT
+                            : 0);
+                    });
                 //endregion
                 //endregion
             });
@@ -320,9 +334,17 @@ public class Main {
                     if ((floor && floorRD && !floorR && !floorD)
                         || (!floor && !floorRD && floorR && floorD)
                     ) {
+                        if (!isFloor.apply(mapTilesCrop[y][x]))
+                            mapTilesCrop[y][x].height -= WALL_HEIGHT;
                         mapTilesCrop[y][x].tileType = MapTile.TileType.FLOOR;
+                        if (!isFloor.apply(mapTilesCrop[y][x + 1]))
+                            mapTilesCrop[y][x + 1].height -= WALL_HEIGHT;
                         mapTilesCrop[y][x + 1].tileType = MapTile.TileType.FLOOR;
+                        if (!isFloor.apply(mapTilesCrop[y + 1][x]))
+                            mapTilesCrop[y + 1][x].height -= WALL_HEIGHT;
                         mapTilesCrop[y + 1][x].tileType = MapTile.TileType.FLOOR;
+                        if (!isFloor.apply(mapTilesCrop[y + 1][x + 1]))
+                            mapTilesCrop[y + 1][x + 1].height -= WALL_HEIGHT;
                         mapTilesCrop[y + 1][x + 1].tileType = MapTile.TileType.FLOOR;
                     }
                 }
@@ -332,12 +354,18 @@ public class Main {
 
         //region PRINT MAP TO TEXT FILE
         final StringJoiner wallJoiner = new StringJoiner("\n");
+        wallJoiner.add("Walls:");
+        final StringJoiner heightJoiner = new StringJoiner("\n");
+        heightJoiner.add("Heights:");
         final StringJoiner styleIndexJoiner = new StringJoiner("\n");
+        styleIndexJoiner.add("Styles:");
         final StringJoiner carcassJoiner = new StringJoiner("\n");
+        carcassJoiner.add("Carcass:");
 
         pointsRectArrayByRow(mapTilesCrop)
             .forEach(row -> {
                 final StringBuilder wallJoinerRow = new StringBuilder();
+                final StringBuilder heightJoinerRow = new StringBuilder();
                 final StringBuilder styleIndexJoinerRow = new StringBuilder();
                 final StringBuilder carcassJoinerRow = new StringBuilder();
                 row.forEach(point -> {
@@ -347,6 +375,7 @@ public class Main {
                         : mapTile.tileType == MapTile.TileType.CONNECTOR
                             ? "."
                             : "_");
+                    heightJoinerRow.append(mapTile.height);
                     styleIndexJoinerRow.append(mapTile.styleIndex);
                     carcassJoinerRow.append(
                         mapTile.carcass || point.x == 0 || point.y == 0
@@ -354,14 +383,16 @@ public class Main {
                             : "_");
                 });
                 wallJoiner.add(wallJoinerRow.toString());
+                heightJoiner.add(heightJoinerRow.toString());
                 styleIndexJoiner.add(styleIndexJoinerRow.toString());
                 carcassJoiner.add(carcassJoinerRow.toString());
             });
 
         final StringJoiner textJoiner = new StringJoiner("\n\n");
-        textJoiner.add(wallJoiner.toString());
-        textJoiner.add(styleIndexJoiner.toString());
         textJoiner.add(carcassJoiner.toString());
+        textJoiner.add(wallJoiner.toString());
+        textJoiner.add(heightJoiner.toString());
+        textJoiner.add(styleIndexJoiner.toString());
 
         Files.write(Path.of("out.txt"), textJoiner.toString().getBytes());
         //endregion
@@ -452,23 +483,45 @@ public class Main {
         //region SHADOWS 1: ADD SHADOW RESOURCES
         mapJson.external_resources.add(
             new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_0" + PNG_EXT,
+                MAP_GFX_PATH + "shadow_wall_corner" + PNG_EXT,
                 "cf6b57dcdc2e72778a42307245a4ff97a7567f6dbf2902f7dda7572f5d540b41",
-                RESOURCE_ID_PREFIX + "shadow_0",
-                null,
+                RESOURCE_ID_PREFIX + "shadow_wall_corner",
+                DOMAIN_FOREGROUND,
                 TILE_SIZE.floatArray(),
-                shadowTint.intArray(),
+                shadowTintWall.intArray(),
                 null,
                 AS_NON_PHYSICAL));
 
         mapJson.external_resources.add(
             new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_1" + PNG_EXT,
+                MAP_GFX_PATH + "shadow_wall_line" + PNG_EXT,
                 "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_1",
+                RESOURCE_ID_PREFIX + "shadow_wall_line",
+                DOMAIN_FOREGROUND,
+                TILE_SIZE.floatArray(),
+                shadowTintWall.intArray(),
+                null,
+                AS_NON_PHYSICAL));
+
+        mapJson.external_resources.add(
+            new Node.ExternalResource(
+                MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT,
+                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
+                RESOURCE_ID_PREFIX + "shadow_floor_line",
                 null,
                 TILE_SIZE.floatArray(),
-                shadowTint.intArray(),
+                shadowTintFloor.intArray(),
+                null,
+                AS_NON_PHYSICAL));
+
+        mapJson.external_resources.add(
+            new Node.ExternalResource(
+                MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT,
+                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
+                RESOURCE_ID_PREFIX + "shadow_floor_corner",
+                null,
+                TILE_SIZE.floatArray(),
+                shadowTintFloor.intArray(),
                 null,
                 AS_NON_PHYSICAL));
         /*
@@ -502,7 +555,7 @@ public class Main {
                 RESOURCE_ID_PREFIX + "line_floor",
                 null,
                 TILE_SIZE.floatArray(),
-                shadowLineFloorTint.intArray(),
+                blackLineFloorTint.intArray(),
                 null,
                 AS_NON_PHYSICAL));
 
@@ -513,90 +566,65 @@ public class Main {
                 RESOURCE_ID_PREFIX + "line_wall",
                 DOMAIN_FOREGROUND,
                 TILE_SIZE.floatArray(),
-                shadowLineWallTint.intArray(),
+                blackLineWallTint.intArray(),
                 null,
                 AS_NON_PHYSICAL));
         //endregion
 
         //region SHADOWS 2: CALCULATE SHADOW TILES
-        pointsRectArray(mapTilesCrop).forEach(tilePoint -> {
-            final Function1<Point, MapTile> getTile = (p) ->
-                (p.x < 0 || p.y < 0 || p.x >= mapTilesCrop[0].length || p.y >= mapTilesCrop.length)
+        pointsRectArray(mapTilesCrop).forEach(thisPoint -> {
+            final MapTile currentTile = mapTilesCrop[thisPoint.y][thisPoint.x];
+            final boolean thisIsWall = !isFloor.apply(currentTile);
+            final Function1<Point, ShadowCalcTileInfo.Entry> getEntry = (thatPointAdd) -> {
+                final Point thatPoint = thisPoint.add(thatPointAdd);
+                final MapTile otherTile = (thatPoint.x < 0
+                    || thatPoint.y < 0
+                    || thatPoint.x >= mapTilesCrop[0].length
+                    || thatPoint.y >= mapTilesCrop.length)
                     ? VIRTUAL_TILE
-                    : mapTilesCrop[p.y][p.x];
-            final MapTile currentTile = getTile.apply(tilePoint);
-            if (false) {
-                final Function1<Point, Boolean> isVisible = (other) ->
-                    getTile.apply(tilePoint.add(other)).visible;
-                final boolean leftVis = isVisible.apply(Point.LEFT);
-                final boolean rightVis = isVisible.apply(Point.RIGHT);
-                final boolean upVis = isVisible.apply(Point.UP);
-                final boolean downVis = isVisible.apply(Point.DOWN);
-                if (!leftVis) mapJson.addShadowLineFloor(tilePoint, 0); //left
-                if (!rightVis) mapJson.addShadowLineFloor(tilePoint, 180); //right
-                if (!upVis) mapJson.addShadowLineFloor(tilePoint, 90); //up
-                if (!downVis) mapJson.addShadowLineFloor(tilePoint, -90); //down
-                if (upVis && leftVis && !isVisible.apply(Point.UP_LEFT))
-                    mapJson.addShadowCornerFloor(tilePoint, 90);
-                if (upVis && rightVis && !isVisible.apply(Point.UP_RIGHT))
-                    mapJson.addShadowCornerFloor(tilePoint, 180);
-                if (downVis && leftVis && !isVisible.apply(Point.DOWN_LEFT))
-                    mapJson.addShadowCornerFloor(tilePoint, 0);
-                if (downVis && rightVis && !isVisible.apply(Point.DOWN_RIGHT))
-                    mapJson.addShadowCornerFloor(tilePoint, -90);
-            }
+                    : mapTilesCrop[thatPoint.y][thatPoint.x];
+                final boolean thatIsWall = otherTile.tileType == MapTile.TileType.WALL;
+                final int hDif = otherTile.height - currentTile.height;
+                final boolean sameStyle = Objects.equals(otherTile.styleIndex, currentTile.styleIndex);
+                final boolean needLine = hDif != 0 || !sameStyle;
+                final boolean higher = hDif > 0;
+                return new ShadowCalcTileInfo.Entry(
+                    hDif,
+                    thatIsWall,
+                    sameStyle,
+                    needLine,
+                    higher);
+            };
+            final ShadowCalcTileInfo info = new ShadowCalcTileInfo(
+                getEntry.apply(Point.LEFT),
+                getEntry.apply(Point.UP),
+                getEntry.apply(Point.RIGHT),
+                getEntry.apply(Point.DOWN),
+                getEntry.apply(Point.UP_LEFT),
+                getEntry.apply(Point.UP_RIGHT),
+                getEntry.apply(Point.DOWN_LEFT),
+                getEntry.apply(Point.DOWN_RIGHT));
 
-            final Function1<Point, Boolean> isWall = (other) ->
-                getTile.apply(tilePoint.add(other)).tileType == MapTile.TileType.WALL;
-            final Function1<Point, Boolean> isSameStyle = (other) ->
-                Objects.equals(getTile.apply(tilePoint.add(other)).styleIndex, currentTile.styleIndex);
-            final boolean leftWall = isWall.apply(Point.LEFT);
-            final boolean rightWall = isWall.apply(Point.RIGHT);
-            final boolean upWall = isWall.apply(Point.UP);
-            final boolean downWall = isWall.apply(Point.DOWN);
-            final boolean upLeftWall = isWall.apply(Point.UP_LEFT);
-            final boolean upRightWall = isWall.apply(Point.UP_RIGHT);
-            final boolean downLeftWall = isWall.apply(Point.DOWN_LEFT);
-            final boolean downRightWall = isWall.apply(Point.DOWN_RIGHT);
-            final boolean leftSameStyle = isSameStyle.apply(Point.LEFT);
-            final boolean rightSameStyle = isSameStyle.apply(Point.RIGHT);
-            final boolean upSameStyle = isSameStyle.apply(Point.UP);
-            final boolean downSameStyle = isSameStyle.apply(Point.DOWN);
-            if (currentTile.tileType != MapTile.TileType.WALL) {
-                if (leftWall) mapJson.addShadowLineFloor(tilePoint, 0);
-                if (rightWall) mapJson.addShadowLineFloor(tilePoint, 180);
-                if (upWall) mapJson.addShadowLineFloor(tilePoint, 90);
-                if (downWall) mapJson.addShadowLineFloor(tilePoint, -90);
-                if (leftWall || !leftSameStyle) mapJson.addBlackLineFloor(tilePoint, 0);
-                if (rightWall || !rightSameStyle) mapJson.addBlackLineFloor(tilePoint, 180);
-                if (upWall || !upSameStyle) mapJson.addBlackLineFloor(tilePoint, 90);
-                if (downWall || !downSameStyle) mapJson.addBlackLineFloor(tilePoint, -90);
-                if (!upWall && !leftWall && upLeftWall)
-                    mapJson.addShadowCornerFloor(tilePoint, 90);
-                if (!upWall && !rightWall && upRightWall)
-                    mapJson.addShadowCornerFloor(tilePoint, 180);
-                if (!downWall && !leftWall && downLeftWall)
-                    mapJson.addShadowCornerFloor(tilePoint, 0);
-                if (!downWall && !rightWall && downRightWall)
-                    mapJson.addShadowCornerFloor(tilePoint, -90);
-            } else {
-                /*
-                if (leftUpWall && leftDownWall) mapJson.addShadowLineWall(tilePoint.x, tilePoint.y, 0);
-                else if (leftUpWall && rightUpWall) mapJson.addShadowLineWall(tilePoint.x, tilePoint.y, 90);
-                else if (rightDownWall && rightUpWall) mapJson.addShadowLineWall(tilePoint.x, tilePoint.y, 180);
-                else if (rightDownWall && leftDownWall) mapJson.addShadowLineWall(tilePoint.x, tilePoint.y, -90);
-                else if (leftUpWall) mapJson.addShadowCornerWall(tilePoint.x, tilePoint.y, 0);
-                else if (rightUpWall) mapJson.addShadowCornerWall(tilePoint.x, tilePoint.y, 90);
-                else if (leftDownWall) mapJson.addShadowCornerWall(tilePoint.x, tilePoint.y, -90);
-                else if (rightDownWall) mapJson.addShadowCornerWall(tilePoint.x, tilePoint.y, 180);
-                 */
-                if (!leftWall || !leftSameStyle) mapJson.addBlackLineWall(tilePoint, 0); //left
-                if (!rightWall || !rightSameStyle) mapJson.addBlackLineWall(tilePoint, 180); //right
-                if (!upWall || !upSameStyle) mapJson.addBlackLineWall(tilePoint, 90); //up
-                if (!downWall || !downSameStyle) mapJson.addBlackLineWall(tilePoint, -90); //down
-            }
-
-
+            mapJson.addShadowLine(thisPoint, 0, info.left.hDif, thisIsWall);
+            mapJson.addShadowLine(thisPoint, 90, info.up.hDif, thisIsWall);
+            mapJson.addShadowLine(thisPoint, 180, info.right.hDif, thisIsWall);
+            mapJson.addShadowLine(thisPoint, -90, info.down.hDif, thisIsWall);
+            mapJson.addShadowCorner(thisPoint, 0,
+                info.downLeft.hDif - Math.max(info.down.hDif, info.left.hDif),
+                thisIsWall);
+            mapJson.addShadowCorner(thisPoint, 90,
+                info.upLeft.hDif - Math.max(info.up.hDif, info.left.hDif),
+                thisIsWall);
+            mapJson.addShadowCorner(thisPoint, 180,
+                info.upRight.hDif - Math.max(info.up.hDif, info.right.hDif),
+                thisIsWall);
+            mapJson.addShadowCorner(thisPoint, -90,
+                info.downRight.hDif - Math.max(info.down.hDif, info.right.hDif),
+                thisIsWall);
+            if (info.left.needLine) mapJson.addBlackLine(thisPoint, 0, thisIsWall);
+            if (info.up.needLine) mapJson.addBlackLine(thisPoint, 90, thisIsWall);
+            if (info.right.needLine) mapJson.addBlackLine(thisPoint, 180, thisIsWall);
+            if (info.down.needLine) mapJson.addBlackLine(thisPoint, -90, thisIsWall);
         });
         //endregion
         //endregion
@@ -612,7 +640,7 @@ public class Main {
                 tileResourceId = RESOURCE_FLOOR_ID;
             }
 
-            if(tile.styleIndex == null) {
+            if (tile.styleIndex == null) {
                 //throw new RuntimeException(mapTileIndex + ": " + tile + ": styleIndex == null");
             }
 
@@ -646,6 +674,7 @@ public class Main {
         Integer styleIndex;
         boolean carcass;
         boolean visible;
+        Integer height;
 
         public enum TileType {
             FLOOR,
@@ -688,6 +717,27 @@ public class Main {
             }
         }
         return points;
+    }
+
+    @Value
+    public static class ShadowCalcTileInfo {
+        Entry left;
+        Entry up;
+        Entry right;
+        Entry down;
+        Entry upLeft;
+        Entry upRight;
+        Entry downLeft;
+        Entry downRight;
+
+        @Value
+        public static class Entry {
+            int hDif;
+            boolean isWall;
+            boolean sameStyle;
+            boolean needLine;
+            boolean higher;
+        }
     }
 
     @Value
@@ -798,28 +848,24 @@ public class Main {
                 .build());
         }
 
-        public void addBlackLineFloor(Point point, int rot) {
-            addTileNode("line_floor", point.x, point.y, rot);
+        public void addBlackLine(Point point, int rot, boolean isWall) {
+            addTileNode(isWall
+                ? "line_wall"
+                : "line_floor", point.x, point.y, rot);
         }
 
-        public void addBlackLineWall(Point point, int rot) {
-            addTileNode("line_wall", point.x, point.y, rot);
+        public void addShadowCorner(Point point, int rot, int height, boolean isWall) {
+            IntStream.range(0, height).forEach((i) ->
+                addTileNode(isWall
+                    ? "shadow_wall_corner"
+                    : "shadow_floor_corner", point.x, point.y, rot));
         }
 
-        public void addShadowCornerFloor(Point point, int rot) {
-            addTileNode("shadow_0", point.x, point.y, rot);
-        }
-
-        public void addShadowLineFloor(Point point, int rot) {
-            addTileNode("shadow_1", point.x, point.y, rot);
-        }
-
-        public void addShadowLineWall(int x, int y, int rot) {
-            addTileNode("shadow_2", x, y, rot);
-        }
-
-        public void addShadowCornerWall(int x, int y, int rot) {
-            addTileNode("shadow_3", x, y, rot);
+        public void addShadowLine(Point point, int rot, int height, boolean isWall) {
+            IntStream.range(0, Math.max(0, height)).forEach((i) ->
+                addTileNode(isWall
+                    ? "shadow_wall_line"
+                    : "shadow_floor_line", point.x, point.y, rot));
         }
 
         public void addBombSiteA(int x, int y, int w, int h) {
