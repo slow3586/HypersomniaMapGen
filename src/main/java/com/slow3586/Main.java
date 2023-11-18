@@ -25,10 +25,12 @@ import java.util.Objects;
 import java.util.Random;
 import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.slow3586.Main.MapTile.TileType.WALL;
 import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL;
 import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL;
@@ -43,7 +45,7 @@ import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
     private static final MapTile VIRTUAL_TILE = new MapTile(
-        MapTile.TileType.WALL,
+        WALL,
         0,
         false,
         false,
@@ -54,7 +56,7 @@ public class Main {
 
     public static void main(String[] args) throws IOException {
         //region GENERATION PARAMETERS
-        random = new Random(127);
+        random = new Random(129);
         final String mapName = "new_gen_test";
         final String mapDirectoryPath = "E:\\Games\\hypersomnia\\user\\projects\\new_gen_test";
         final Path mapGfxPath = Paths.get(mapDirectoryPath, "gfx");
@@ -74,12 +76,15 @@ public class Main {
         final MinMaxSize styleSizeMinMaxSize = new MinMaxSize(
             new Size(0, 0),
             new Size(2, 2));
-        final Color ambientLightColor = new Color(110, 180, 220, 220);
+        final Color ambientLightColor = new Color(155, 110, 175, 220);
         final Color shadowTintFloor = new Color(255, 255, 255, 40);
         final Color shadowTintWall = new Color(255, 255, 255, 25);
         final Color blackLineFloorTint = new Color(255, 255, 255, 20);
-        final Color blackLineWallTint = new Color(255, 255, 255, 20);
-        final int maxStyleHeight = 2;
+        final Color blackLineWallTint = new Color(255, 255, 255, 30);
+        final int floorTintBase = 110;
+        final int wallTintBase = 210;
+        final int floorTintChange = 15;
+        final int wallTintChange = 20;
         //endregion
 
         //region GENERATE ROOMS
@@ -92,10 +97,27 @@ public class Main {
         //endregion
 
         //region RANDOMIZE ROOM STYLES
-        final RoomStyle[] styles = Stream.generate(() -> new RoomStyle(nextInt(0, maxStyleHeight)))
-            .limit(styleCount)
-            .toArray(RoomStyle[]::new);
+        final RoomStyle[] styles = IntStream.range(0, styleCount)
+            .boxed()
+            .map((i) -> new RoomStyle(
+                i,
+                new Color(
+                    floorTintBase + floorTintChange * i,
+                    floorTintBase + floorTintChange * i,
+                    floorTintBase + floorTintChange * i,
+                    255),
+                new Color(
+                    wallTintBase + wallTintChange * i,
+                    wallTintBase + wallTintChange * i,
+                    wallTintBase + wallTintChange * i,
+                    255),
+                nextInt(0, 11),
+                nextInt(0, 11),
+                new Color(255, 255, 255, nextInt(15, 25)),
+                new Color(255, 255, 255, nextInt(15, 25)))
+            ).toArray(RoomStyle[]::new);
         //endregion
+
 
         final Room[][] rooms = new Room[roomsCountParam.y][roomsCountParam.x];
         pointsRect(0, 0, roomsCountParam.x, roomsCountParam.y)
@@ -229,7 +251,7 @@ public class Main {
                             || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
                             && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
                             ? MapTile.TileType.CONNECTOR
-                            : MapTile.TileType.WALL);
+                            : WALL);
                 //endregion
 
                 //region WALL VERTICAL
@@ -244,7 +266,7 @@ public class Main {
                             || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
                             && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
                             ? MapTile.TileType.CONNECTOR
-                            : MapTile.TileType.WALL);
+                            : WALL);
                 //endregion
 
                 //region CARCASS HORIZONTAL
@@ -278,7 +300,7 @@ public class Main {
                     .forEach(tile -> {
                         tile.styleIndex = room.styleIndex;
                         tile.height = styles[room.styleIndex].height
-                            + (tile.tileType == MapTile.TileType.WALL
+                            + (tile.tileType == WALL
                             ? WALL_HEIGHT
                             : 0);
                     });
@@ -316,7 +338,7 @@ public class Main {
         } else {
             mapTilesCrop = mapTilesUncrop;
         }
-        mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 1].tileType = MapTile.TileType.WALL;
+        mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 1].tileType = WALL;
         //endregion
 
         //region FIX DIAGONAL WALLS TOUCH WITH EMPTY SIDES
@@ -370,7 +392,7 @@ public class Main {
                 final StringBuilder carcassJoinerRow = new StringBuilder();
                 row.forEach(point -> {
                     final MapTile mapTile = mapTilesCrop[point.y][point.x];
-                    wallJoinerRow.append(mapTile.tileType == MapTile.TileType.WALL
+                    wallJoinerRow.append(mapTile.tileType == WALL
                         ? "#"
                         : mapTile.tileType == MapTile.TileType.CONNECTOR
                             ? "."
@@ -423,19 +445,20 @@ public class Main {
 
         //region CREATE WALL AND FLOOR RESOURCES
         final File texturesDir = new File("textures");
-        final Path basePngPath = texturesDir.toPath().resolve("base.png");
-        final Consumer<String> createTexture = Sneaky.consumer(
-            (textureFileName) -> {
-                Path targetPath = mapGfxPath.resolve(textureFileName + PNG_EXT);
+        final String basePngFilename = "base";
+        final BiConsumer<String, String> createTexture = Sneaky.biConsumer(
+            (sourceFilename, targetFilename) -> {
+                final Path sourcePath = texturesDir.toPath().resolve(sourceFilename + PNG_EXT);
+                final Path targetPath = mapGfxPath.resolve(targetFilename + PNG_EXT);
                 if (Files.exists(targetPath))
                     Files.delete(targetPath);
-                Files.copy(
-                    basePngPath,
-                    targetPath);
+                Files.copy(sourcePath, targetPath);
             });
 
-        for (int i = 0; i < styleCount; i++) {
-            final String floorId = RESOURCE_FLOOR_ID + i;
+        //region STYLE RESOURCES
+        for (int styleId = 0; styleId < styles.length; styleId++) {
+            final RoomStyle style = styles[styleId];
+            final String floorId = RESOURCE_FLOOR_ID + styleId;
             mapJson.external_resources.add(
                 new Node.ExternalResource(
                     MAP_GFX_PATH + floorId + PNG_EXT,
@@ -443,17 +466,12 @@ public class Main {
                     RESOURCE_ID_PREFIX + floorId,
                     null,
                     TILE_SIZE.floatArray(),
-                    new Color(
-                        225 - 15 * i,
-                        225 - 15 * i,
-                        225 - 15 * i,
-                        255
-                    ).intArray(),
+                    style.floorColor.intArray(),
                     null,
                     null));
-            createTexture.accept(floorId);
+            createTexture.accept(basePngFilename, floorId);
 
-            final String wallId = RESOURCE_WALL_ID + i;
+            final String wallId = RESOURCE_WALL_ID + styleId;
             mapJson.external_resources.add(
                 new Node.ExternalResource(
                     MAP_GFX_PATH + wallId + PNG_EXT,
@@ -461,16 +479,38 @@ public class Main {
                     RESOURCE_ID_PREFIX + wallId,
                     DOMAIN_PHYSICAL,
                     TILE_SIZE.floatArray(),
-                    new Color(
-                        155 - 8 * i,
-                        155 - 8 * i,
-                        155 - 8 * i,
-                        255
-                    ).intArray(),
+                    style.wallColor.intArray(),
                     AS_PHYSICAL,
                     null));
-            createTexture.accept(wallId);
+            createTexture.accept(basePngFilename, wallId);
+
+            final String patternWallTarget = "style" + styleId + "_pattern_wall";
+            mapJson.external_resources.add(
+                new Node.ExternalResource(
+                    MAP_GFX_PATH + patternWallTarget + PNG_EXT,
+                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
+                    RESOURCE_ID_PREFIX + patternWallTarget,
+                    DOMAIN_FOREGROUND,
+                    TILE_SIZE.floatArray(),
+                    style.patternColorWall.intArray(),
+                    null,
+                    null));
+            createTexture.accept("pattern" + style.patternIdWall, patternWallTarget);
+
+            final String patternFloorTarget = "style" + styleId + "_pattern_floor";
+            mapJson.external_resources.add(
+                new Node.ExternalResource(
+                    MAP_GFX_PATH + patternFloorTarget + PNG_EXT,
+                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
+                    RESOURCE_ID_PREFIX + patternFloorTarget,
+                    null,
+                    TILE_SIZE.floatArray(),
+                    style.patternColorFloor.intArray(),
+                    null,
+                    null));
+            createTexture.accept("pattern" + style.patternIdFloor, patternFloorTarget);
         }
+        //endregion
         //endregion
 
         //region SPAWNS/BOMB SITES
@@ -583,7 +623,7 @@ public class Main {
                     || thatPoint.y >= mapTilesCrop.length)
                     ? VIRTUAL_TILE
                     : mapTilesCrop[thatPoint.y][thatPoint.x];
-                final boolean thatIsWall = otherTile.tileType == MapTile.TileType.WALL;
+                final boolean thatIsWall = otherTile.tileType == WALL;
                 final int hDif = otherTile.height - currentTile.height;
                 final boolean sameStyle = Objects.equals(otherTile.styleIndex, currentTile.styleIndex);
                 final boolean needLine = hDif != 0 || !sameStyle;
@@ -634,7 +674,7 @@ public class Main {
             final MapTile tile = mapTilesCrop[mapTileIndex.y][mapTileIndex.x];
 
             final String tileResourceId;
-            if (tile.tileType == MapTile.TileType.WALL) {
+            if (tile.tileType == WALL) {
                 tileResourceId = RESOURCE_WALL_ID;
             } else {
                 tileResourceId = RESOURCE_FLOOR_ID;
@@ -644,6 +684,22 @@ public class Main {
                 //throw new RuntimeException(mapTileIndex + ": " + tile + ": styleIndex == null");
             }
 
+            // PATTERN
+            final RoomStyle style = styles[tile.styleIndex];
+            final int patternId = tile.tileType == WALL
+                ? style.patternIdWall
+                : style.patternIdFloor;
+            if (patternId >= 0)
+                mapJson.addTileNode(
+                    "style" + tile.styleIndex + "_pattern_"
+                        + (tile.tileType == WALL
+                        ? "wall"
+                        : "floor"),
+                    mapTileIndex.x,
+                    mapTileIndex.y,
+                    0);
+
+            // BASE
             mapJson.addTileNode(
                 tileResourceId + tile.styleIndex,
                 mapTileIndex.x,
@@ -812,6 +868,12 @@ public class Main {
         @Value
         public static class RoomStyle {
             int height;
+            Color floorColor;
+            Color wallColor;
+            int patternIdFloor;
+            int patternIdWall;
+            Color patternColorFloor;
+            Color patternColorWall;
         }
     }
 
