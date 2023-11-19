@@ -58,7 +58,7 @@ public class Main {
         //region GENERATION PARAMETERS
         random = new Random(129);
         final String mapName = "new_gen_test";
-        final String mapDirectoryPath = "E:\\Games\\hypersomnia\\user\\projects\\new_gen_test";
+        final String mapDirectoryPath = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hypersomnia\\user\\projects\\new_gen_test";
         final Path mapGfxPath = Paths.get(mapDirectoryPath, "gfx");
         final boolean cropMap = true;
         final Point roomsCountParam = new Point(6 + 1, 4 + 1);
@@ -76,7 +76,7 @@ public class Main {
         final MinMaxSize styleSizeMinMaxSize = new MinMaxSize(
             new Size(0, 0),
             new Size(2, 2));
-        final Color ambientLightColor = new Color(155, 110, 175, 220);
+        final Color ambientLightColor = new Color(200, 150, 225, 225);
         final Color shadowTintFloor = new Color(255, 255, 255, 40);
         final Color shadowTintWall = new Color(255, 255, 255, 25);
         final Color blackLineFloorTint = new Color(255, 255, 255, 20);
@@ -87,7 +87,7 @@ public class Main {
         final int wallTintChange = 20;
         //endregion
 
-        //region GENERATE ROOMS
+        //region GENERATION: ROOMS
         //region RANDOMIZE DIAGONAL ROOM SIZES
         final Size[] diagonalRoomSizes = Stream.generate(() -> new Size(
                 nextInt(roomMinMaxSize.min.w, roomMinMaxSize.max.w),
@@ -212,7 +212,7 @@ public class Main {
             });
         //endregion
 
-        //region FILL BASE MAP TILE ARRAY
+        //region GENERATION: BASE MAP TILE ARRAY
         final MapTile[][] mapTilesUncrop =
             pointsRectRows(0, 0,
                 Arrays.stream(diagonalRoomSizes)
@@ -233,7 +233,7 @@ public class Main {
                 ).toArray(MapTile[][]::new);
         //endregion
 
-        //region RENDER BASE ROOMS ONTO BASE MAP TILE ARRAY
+        //region GENERATION: RENDER BASE ROOMS ONTO BASE MAP TILE ARRAY
         pointsRectArray(rooms)
             .forEach(roomIndex -> {
                 final Room room = rooms[roomIndex.y][roomIndex.x];
@@ -309,7 +309,7 @@ public class Main {
             });
         //endregion
 
-        //region CROP MAP
+        //region GENERATION: CROP MAP
         final MapTile[][] mapTilesCrop;
         if (cropMap) {
             final Size croppedMapSize = new Size(
@@ -341,7 +341,7 @@ public class Main {
         mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 1].tileType = WALL;
         //endregion
 
-        //region FIX DIAGONAL WALLS TOUCH WITH EMPTY SIDES
+        //region GENERATION: FIX DIAGONAL WALLS TOUCH WITH EMPTY SIDES
         // #_    _#
         // _# OR #_
         final Function1<MapTile, Boolean> isFloor = (s) -> s.tileType == MapTile.TileType.FLOOR
@@ -374,7 +374,7 @@ public class Main {
         }
         //endregion
 
-        //region PRINT MAP TO TEXT FILE
+        //region OUTPUT: PRINT MAP TO TEXT FILE
         final StringJoiner wallJoiner = new StringJoiner("\n");
         wallJoiner.add("Walls:");
         final StringJoiner heightJoiner = new StringJoiner("\n");
@@ -419,12 +419,7 @@ public class Main {
         Files.write(Path.of("out.txt"), textJoiner.toString().getBytes());
         //endregion
 
-        //region PRINT MAP TO JSON
-        int spawnTOffset = 2;
-        int spawnCTOffset = 2;
-        int siteAOffset = 1;
-        int siteBOffset = 3;
-
+        //region OUTPUT: CREATE MAP JSON FILE
         //region BASE MAP JSON OBJECT
         final Map mapJson = new Map(
             new Meta(
@@ -443,9 +438,12 @@ public class Main {
             new ArrayList<>());
         //endregion
 
-        //region CREATE WALL AND FLOOR RESOURCES
+        //region RESOURCES: FUNCTIONS
         final File texturesDir = new File("textures");
         final String basePngFilename = "base";
+        if (!Files.exists(mapGfxPath)) {
+            Files.createDirectory(mapGfxPath);
+        }
         final BiConsumer<String, String> createTexture = Sneaky.biConsumer(
             (sourceFilename, targetFilename) -> {
                 final Path sourcePath = texturesDir.toPath().resolve(sourceFilename + PNG_EXT);
@@ -454,163 +452,114 @@ public class Main {
                     Files.delete(targetPath);
                 Files.copy(sourcePath, targetPath);
             });
+        //endregion
 
-        //region STYLE RESOURCES
+        //region RESOURCES: ROOMS
+        mapJson.external_resources.add(
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "room_noise_circle" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "room_noise_circle")
+                .stretch_when_resized(true)
+                .domain(DOMAIN_FOREGROUND)
+                .color(new Color(255, 255, 255, 150).intArray())
+                .build());
+        //endregion
+
+        //region RESOURCES: STYLES
         for (int styleId = 0; styleId < styles.length; styleId++) {
             final RoomStyle style = styles[styleId];
             final String floorId = RESOURCE_FLOOR_ID + styleId;
             mapJson.external_resources.add(
-                new Node.ExternalResource(
-                    MAP_GFX_PATH + floorId + PNG_EXT,
-                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
-                    RESOURCE_ID_PREFIX + floorId,
-                    null,
-                    TILE_SIZE.floatArray(),
-                    style.floorColor.intArray(),
-                    null,
-                    null));
+                Node.ExternalResource.builder()
+                    .path(MAP_GFX_PATH + floorId + PNG_EXT)
+                    .id(RESOURCE_ID_PREFIX + floorId)
+                    .color(style.floorColor.intArray())
+                    .build());
             createTexture.accept(basePngFilename, floorId);
 
             final String wallId = RESOURCE_WALL_ID + styleId;
             mapJson.external_resources.add(
-                new Node.ExternalResource(
-                    MAP_GFX_PATH + wallId + PNG_EXT,
-                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
-                    RESOURCE_ID_PREFIX + wallId,
-                    DOMAIN_PHYSICAL,
-                    TILE_SIZE.floatArray(),
-                    style.wallColor.intArray(),
-                    AS_PHYSICAL,
-                    null));
+                Node.ExternalResource.builder()
+                    .path(MAP_GFX_PATH + wallId + PNG_EXT)
+                    .id(RESOURCE_ID_PREFIX + wallId)
+                    .domain(DOMAIN_PHYSICAL)
+                    .color(style.wallColor.intArray())
+                    .as_physical(AS_PHYSICAL)
+                    .build());
             createTexture.accept(basePngFilename, wallId);
 
             final String patternWallTarget = "style" + styleId + "_pattern_wall";
             mapJson.external_resources.add(
-                new Node.ExternalResource(
-                    MAP_GFX_PATH + patternWallTarget + PNG_EXT,
-                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
-                    RESOURCE_ID_PREFIX + patternWallTarget,
-                    DOMAIN_FOREGROUND,
-                    TILE_SIZE.floatArray(),
-                    style.patternColorWall.intArray(),
-                    null,
-                    null));
+                Node.ExternalResource.builder()
+                    .path(MAP_GFX_PATH + patternWallTarget + PNG_EXT)
+                    .id(RESOURCE_ID_PREFIX + patternWallTarget)
+                    .domain(DOMAIN_FOREGROUND)
+                    .color(style.patternColorWall.intArray())
+                    .build());
             createTexture.accept("pattern" + style.patternIdWall, patternWallTarget);
 
             final String patternFloorTarget = "style" + styleId + "_pattern_floor";
             mapJson.external_resources.add(
-                new Node.ExternalResource(
-                    MAP_GFX_PATH + patternFloorTarget + PNG_EXT,
-                    "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62",
-                    RESOURCE_ID_PREFIX + patternFloorTarget,
-                    null,
-                    TILE_SIZE.floatArray(),
-                    style.patternColorFloor.intArray(),
-                    null,
-                    null));
+                Node.ExternalResource.builder()
+                    .path(MAP_GFX_PATH + patternFloorTarget + PNG_EXT)
+                    .id(RESOURCE_ID_PREFIX + patternFloorTarget)
+                    .color(style.patternColorFloor.intArray())
+                    .build());
             createTexture.accept("pattern" + style.patternIdFloor, patternFloorTarget);
         }
-        //endregion
-        //endregion
-
-        //region SPAWNS/BOMB SITES
-        mapJson.addBombSiteA(rooms[0].length - 2, siteAOffset, 3, 3);
-        mapJson.addBombSiteB(rooms[0].length - 2, siteBOffset, 3, 3);
-        mapJson.addSpawnT(0, spawnTOffset, 3, 3);
-        mapJson.addSpawnCT(rooms[0].length - 1, spawnCTOffset, 3, 3);
         //endregion
 
         //region SHADOWS 1: ADD SHADOW RESOURCES
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_wall_corner" + PNG_EXT,
-                "cf6b57dcdc2e72778a42307245a4ff97a7567f6dbf2902f7dda7572f5d540b41",
-                RESOURCE_ID_PREFIX + "shadow_wall_corner",
-                DOMAIN_FOREGROUND,
-                TILE_SIZE.floatArray(),
-                shadowTintWall.intArray(),
-                null,
-                AS_NON_PHYSICAL));
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "shadow_wall_corner" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "shadow_wall_corner")
+                .domain(DOMAIN_FOREGROUND)
+                .color(shadowTintWall.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
 
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_wall_line" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_wall_line",
-                DOMAIN_FOREGROUND,
-                TILE_SIZE.floatArray(),
-                shadowTintWall.intArray(),
-                null,
-                AS_NON_PHYSICAL));
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "shadow_wall_line" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "shadow_wall_line")
+                .domain(DOMAIN_FOREGROUND)
+                .color(shadowTintWall.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
 
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_floor_line",
-                null,
-                TILE_SIZE.floatArray(),
-                shadowTintFloor.intArray(),
-                null,
-                AS_NON_PHYSICAL));
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "shadow_floor_line")
+                .color(shadowTintFloor.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
 
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_floor_corner",
-                null,
-                TILE_SIZE.floatArray(),
-                shadowTintFloor.intArray(),
-                null,
-                AS_NON_PHYSICAL));
-        /*
-        mapJson.external_resources().add(
-            new Settings.Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_2" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_2",
-                DOMAIN_FOREGROUND,
-                TILE_SIZE.floatArray(),
-                shadowTint.intArray(),
-                null,
-                AS_NON_PHYSICAL));
-
-        mapJson.external_resources().add(
-            new Settings.Node.ExternalResource(
-                MAP_GFX_PATH + "shadow_3" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "shadow_3",
-                DOMAIN_FOREGROUND,
-                TILE_SIZE.floatArray(),
-                shadowTint.intArray(),
-                null,
-                AS_NON_PHYSICAL));
-        */
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "shadow_floor_corner")
+                .color(shadowTintFloor.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
 
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "line_floor" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "line_floor",
-                null,
-                TILE_SIZE.floatArray(),
-                blackLineFloorTint.intArray(),
-                null,
-                AS_NON_PHYSICAL));
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "line_floor" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "line_floor")
+                .color(blackLineFloorTint.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
 
         mapJson.external_resources.add(
-            new Node.ExternalResource(
-                MAP_GFX_PATH + "line_wall" + PNG_EXT,
-                "3c50be45fc819004413c69c5a27748334c1eb8c621d040b566a94019fe8c8823",
-                RESOURCE_ID_PREFIX + "line_wall",
-                DOMAIN_FOREGROUND,
-                TILE_SIZE.floatArray(),
-                blackLineWallTint.intArray(),
-                null,
-                AS_NON_PHYSICAL));
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "line_wall" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "line_wall")
+                .color(blackLineWallTint.intArray())
+                .as_nonphysical(AS_NON_PHYSICAL)
+                .build());
         //endregion
-
         //region SHADOWS 2: CALCULATE SHADOW TILES
         pointsRectArray(mapTilesCrop).forEach(thisPoint -> {
             final MapTile currentTile = mapTilesCrop[thisPoint.y][thisPoint.x];
@@ -667,9 +616,59 @@ public class Main {
             if (info.down.needLine) mapJson.addBlackLine(thisPoint, -90, thisIsWall);
         });
         //endregion
+
+        //region NODES: ROOM EFFECTS
+        pointsRectArray(rooms).forEach(point -> {
+            if (point.x == 0 || point.y == 0) return;
+            final Room room = rooms[point.y][point.x];
+            final Point pos;
+            while (true) {
+                final Point pos1 = new Point(
+                    (room.roomPosAbs.x + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].w),
+                    (room.roomPosAbs.y + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].h));
+                final MapTile mapTile = mapTilesCrop[pos1.y][pos1.x];
+                if (mapTile.visible && mapTile.tileType != WALL) {
+                    pos = pos1.mul(TILE_SIZE.toPoint());
+                    break;
+                }
+            }
+            Color color = new Color(
+                nextInt(20, 200),
+                nextInt(20, 200),
+                nextInt(20, 200),
+                nextInt(20, 40)
+            );
+            float[] size = {
+                room.roomSize.w * TILE_SIZE.w * (1 + (float) nextInt(1, 4) / 4),
+                room.roomSize.h * TILE_SIZE.h * (1 + (float) nextInt(1, 4) / 4)
+            };
+            mapJson.addNode(Node.builder()
+                .type(RESOURCE_ID_PREFIX + "room_noise_circle")
+                .pos(pos.floatArray())
+                .size(size)
+                .rotation((float) nextInt(1, 359))
+                .color(color.intArray())
+                .build());
+            mapJson.addNode(Node.builder()
+                .type("wandering_pixels")
+                .pos(pos.floatArray())
+                .size(size)
+                .num_particles(100)
+                .color(color.intArray())
+                .build());
+            mapJson.addNode(Node.builder()
+                .type("point_light")
+                .pos(pos.floatArray())
+                .color(new Color(color.r, color.g, color.b, 15).intArray())
+                .positional_vibration(1.0f)
+                .falloff(new Node.Falloff(
+                    nextInt(250, 500),
+                    nextInt(10, 20))
+                ).build());
+        });
         //endregion
 
-        //region MAP TILES TO NODES
+        //region NODES: MAP TILES
         pointsRectArray(mapTilesCrop).forEach(mapTileIndex -> {
             final MapTile tile = mapTilesCrop[mapTileIndex.y][mapTileIndex.x];
 
@@ -678,10 +677,6 @@ public class Main {
                 tileResourceId = RESOURCE_WALL_ID;
             } else {
                 tileResourceId = RESOURCE_FLOOR_ID;
-            }
-
-            if (tile.styleIndex == null) {
-                //throw new RuntimeException(mapTileIndex + ": " + tile + ": styleIndex == null");
             }
 
             // PATTERN
@@ -708,6 +703,18 @@ public class Main {
         });
         //endregion
 
+        //region NODES: SPAWNS/BOMB SITES
+        int spawnTOffset = 2;
+        int spawnCTOffset = 2;
+        int siteAOffset = 1;
+        int siteBOffset = 3;
+
+        mapJson.addBombSiteA(rooms[0].length - 2, siteAOffset, 3, 3);
+        mapJson.addBombSiteB(rooms[0].length - 2, siteBOffset, 3, 3);
+        mapJson.addSpawnT(0, spawnTOffset, 3, 3);
+        mapJson.addSpawnCT(rooms[0].length - 1, spawnCTOffset, 3, 3);
+        //endregion
+
         //region WRITE JSON FILE
         final ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
@@ -718,7 +725,6 @@ public class Main {
         System.out.println("Writing to " + mapJsonFilePath);
         Files.write(mapJsonFilePath, mapJsonString.getBytes());
         //endregion
-
         //endregion
     }
 
@@ -742,6 +748,12 @@ public class Main {
     public static int nextInt(int from, int to) {
         return randomEnabled
             ? random.nextInt(from, to)
+            : (int) Math.floor((double) (from + to) / 2);
+    }
+
+    public static float nextFloat(float from, float to) {
+        return randomEnabled
+            ? random.nextFloat(from, to)
             : (int) Math.floor((double) (from + to) / 2);
     }
 
@@ -814,6 +826,10 @@ public class Main {
             return new Point(x + other.x, y + other.y);
         }
 
+        public Point mul(Point other) {
+            return new Point(x * other.x, y * other.y);
+        }
+
         public float[] floatArray() {
             return new float[]{(float) x, (float) y};
         }
@@ -828,6 +844,8 @@ public class Main {
         public float[] floatArray() {
             return new float[]{(float) w, (float) h};
         }
+
+        public Point toPoint() {return new Point(w, h);}
     }
 
     @Value
@@ -993,6 +1011,8 @@ public class Main {
             Float positional_vibration;
             Float intensity_vibration;
             Falloff falloff;
+            int[] color;
+            int num_particles;
 
             static final String FACTION_RESISTANCE = "RESISTANCE";
             static final String TYPE_BOMBSITE = "bombsite";
@@ -1008,16 +1028,21 @@ public class Main {
                 int strength;
             }
 
+            @Builder
             @Value
             public static class ExternalResource {
                 String path;
-                String file_hash;
+                @Builder.Default
+                String file_hash = "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62";
                 String id;
                 String domain;
-                float[] size;
-                int[] color;
+                @Builder.Default
+                float[] size = TILE_SIZE.floatArray();
+                @Builder.Default
+                int[] color = Color.WHITE.intArray();
                 AsPhysical as_physical;
                 AsNonPhysical as_nonphysical;
+                boolean stretch_when_resized;
 
                 static String DOMAIN_PHYSICAL = "PHYSICAL";
                 static String DOMAIN_FOREGROUND = "FOREGROUND";
