@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.slow3586.Main.Settings.Node.ExternalResource;
 import io.vavr.Function1;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -26,7 +27,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -35,21 +35,34 @@ import java.util.Random;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.slow3586.Main.Color.WHITE;
 import static com.slow3586.Main.Configuration.parseConfigEntry;
 import static com.slow3586.Main.MapTile.TileType.WALL;
 import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL_DEFAULT;
+import static com.slow3586.Main.Settings.Node.ExternalResource.BASE_PNG_TEXTURE_FILENAME;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_1_X_1;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2_X_1;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2_X_2;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_FOREGROUND;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_PHYSICAL;
+import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_FLOOR;
+import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_WALL;
 import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_FLOOR_ID;
 import static com.slow3586.Main.Settings.Node.ExternalResource.MAP_GFX_PATH;
 import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_ID_PREFIX;
 import static com.slow3586.Main.Settings.Node.ExternalResource.PNG_EXT;
 import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_WALL_ID;
+import static com.slow3586.Main.Settings.Node.ExternalResource.ROOM_NOISE_CIRCLE;
+import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_CORNER;
+import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_LINE;
+import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_CORNER;
+import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_LINE;
 import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
@@ -63,12 +76,16 @@ public class Main {
     }
 
     public static void main(String[] args) throws IOException {
+        //region CONFIGURATION
         final String configRandomStr = Files.readString(Path.of("config_random.json"));
         configRandom = OBJECT_MAPPER.readValue(configRandomStr, ConfigurationRandom.class);
         baseRandom = new Random(configRandom.seed);
 
         final String configStr = Files.readString(Path.of("config.json"));
         config = OBJECT_MAPPER.readValue(configStr, Configuration.class);
+
+        final Path mapDirectory = Path.of(config.gameDirectoryPath, "user", "projects", config.mapName);
+        //endregion
 
         //region GENERATION: ROOMS
         //region RANDOMIZE DIAGONAL ROOM SIZES
@@ -82,17 +99,17 @@ public class Main {
         //region RANDOMIZE ROOM STYLES
         final RoomStyle[] styles = IntStream.range(0, config.styleCount)
             .boxed()
-            .map((i) -> new RoomStyle(
-                i,
+            .map(styleIndex -> new RoomStyle(
+                styleIndex,
                 new Color(
-                    config.floorTintBase + config.floorTintPerHeight * i,
-                    config.floorTintBase + config.floorTintPerHeight * i,
-                    config.floorTintBase + config.floorTintPerHeight * i,
+                    config.floorTintBase + config.floorTintPerHeight * styleIndex,
+                    config.floorTintBase + config.floorTintPerHeight * styleIndex,
+                    config.floorTintBase + config.floorTintPerHeight * styleIndex,
                     255),
                 new Color(
-                    config.wallTintBase + config.wallTintPerHeight * i,
-                    config.wallTintBase + config.wallTintPerHeight * i,
-                    config.wallTintBase + config.wallTintPerHeight * i,
+                    config.wallTintBase + config.wallTintPerHeight * styleIndex,
+                    config.wallTintBase + config.wallTintPerHeight * styleIndex,
+                    config.wallTintBase + config.wallTintPerHeight * styleIndex,
                     255),
                 nextInt(0, config.patternResourceCount),
                 nextInt(0, config.patternResourceCount),
@@ -100,7 +117,6 @@ public class Main {
                 config.patternColorWall)
             ).toArray(RoomStyle[]::new);
         //endregion
-
 
         final Room[][] rooms = new Room[config.roomsCount.y][config.roomsCount.x];
         pointsRect(0, 0, config.roomsCount.x, config.roomsCount.y)
@@ -135,28 +151,24 @@ public class Main {
                 //region RANDOMIZE DOOR
                 final Size doorSize;
                 final Point doorOffset;
-                final boolean playableArea = roomIndex.x != 0 && roomIndex.y != 0;
-                if (playableArea) {
-                    doorSize = new Size(
-                        roomIndex.y == rooms.length - 1
-                            ? 0
-                            : nextInt(config.doorMinMaxWidth.min.w,
-                                Math.min(config.doorMinMaxWidth.max.w, realRoomSize.w)),
-                        roomIndex.x == rooms[0].length - 1
-                            ? 0
-                            : nextInt(config.doorMinMaxWidth.min.h,
-                                Math.min(config.doorMinMaxWidth.max.h, realRoomSize.h)));
-                    doorOffset = new Point(
-                        roomIndex.y == rooms.length - 1
-                            ? 0
-                            : nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w),
-                        roomIndex.x == rooms[0].length - 1
-                            ? 0
-                            : nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h));
-                } else {
-                    doorSize = new Size(0, 0);
-                    doorOffset = new Point(0, 0);
-                }
+                final boolean needVerticalDoor = roomIndex.x > 0 && roomIndex.x < rooms[0].length - 1;
+                final boolean needHorizontalDoor = roomIndex.y > 0 && roomIndex.y < rooms.length - 1;
+                doorSize = new Size(
+                    needHorizontalDoor
+                        ? nextInt(config.doorMinMaxWidth.min.w,
+                        Math.min(config.doorMinMaxWidth.max.w, realRoomSize.w))
+                        : 0,
+                    needVerticalDoor
+                        ? nextInt(config.doorMinMaxWidth.min.h,
+                        Math.min(config.doorMinMaxWidth.max.h, realRoomSize.h))
+                        : 0);
+                doorOffset = new Point(
+                    needHorizontalDoor
+                        ? nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w)
+                        : 0,
+                    needVerticalDoor
+                        ? nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h)
+                        : 0);
                 //endregion
 
                 //region RANDOMIZE STYLE
@@ -188,7 +200,6 @@ public class Main {
                     new Room.Rect(
                         doorOffset.y,
                         doorSize.h),
-                    playableArea,
                     styleIndex,
                     styleSize);
                 //endregion
@@ -196,7 +207,7 @@ public class Main {
         //endregion
 
         //region GENERATION: BASE MAP TILE ARRAY
-        final MapTile[][] mapTilesUncrop =
+        final MapTile[][] mapTilesUncropped =
             pointsRectRows(0, 0,
                 Arrays.stream(diagonalRoomSizes)
                     .mapToInt(r -> r.w + config.wallMaxOffset.x)
@@ -229,8 +240,8 @@ public class Main {
                     room.roomSize.w,
                     room.wallHoriz.width
                 ).forEach(pointAbs ->
-                    mapTilesUncrop[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                        (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
                             && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
                             ? MapTile.TileType.DOOR
@@ -244,8 +255,8 @@ public class Main {
                     room.wallVert.width,
                     room.roomSize.h
                 ).forEach(pointAbs ->
-                    mapTilesUncrop[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                        (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
                             && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
                             ? MapTile.TileType.DOOR
@@ -259,7 +270,7 @@ public class Main {
                     room.roomSize.w,
                     1
                 ).forEach(pointAbs ->
-                    mapTilesUncrop[pointAbs.y][pointAbs.x].carcass = true);
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].carcass = true);
                 //endregion
 
                 //region CARCASS VERTICAL
@@ -269,7 +280,7 @@ public class Main {
                     1,
                     room.roomSize.h
                 ).forEach(pointAbs ->
-                    mapTilesUncrop[pointAbs.y][pointAbs.x].carcass = true);
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].carcass = true);
                 //endregion
 
                 //region TILE ROOM TYPE
@@ -279,7 +290,7 @@ public class Main {
                     room.roomSize.w + room.styleSize.w,
                     room.roomSize.h + room.styleSize.h
                 ).stream()
-                    .map(pointAbs -> mapTilesUncrop[pointAbs.y][pointAbs.x])
+                    .map(pointAbs -> mapTilesUncropped[pointAbs.y][pointAbs.x])
                     .forEach(tile -> {
                         tile.styleIndex = room.styleIndex;
                         tile.height = styles[room.styleIndex].height
@@ -312,16 +323,20 @@ public class Main {
             final MapTile[][] temp = new MapTile[croppedMapSize.h][croppedMapSize.w];
             for (int y = 0; y < croppedMapSize.h; y++) {
                 temp[y] = Arrays.copyOfRange(
-                    mapTilesUncrop[y + diagonalRoomSizes[0].h],
+                    mapTilesUncropped[y + diagonalRoomSizes[0].h],
                     diagonalRoomSizes[0].w,
                     diagonalRoomSizes[0].w + croppedMapSize.w);
             }
 
             mapTilesCrop = temp;
         } else {
-            mapTilesCrop = mapTilesUncrop;
+            mapTilesCrop = mapTilesUncropped;
         }
-        mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 1].tileType = WALL;
+        //endregion
+
+        //region GENERATION: FIX MOST DOWN RIGHT TILE
+        mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 1] =
+            mapTilesCrop[mapTilesCrop.length - 1][mapTilesCrop[0].length - 2];
         //endregion
 
         //region GENERATION: FIX DIAGONAL WALLS TOUCH WITH EMPTY SIDES
@@ -399,21 +414,21 @@ public class Main {
         textJoiner.add(heightJoiner.toString());
         textJoiner.add(styleIndexJoiner.toString());
 
-        Files.write(Path.of("out.txt"), textJoiner.toString().getBytes());
+        Files.write(Path.of(config.outputTextFilePath), textJoiner.toString().getBytes());
         //endregion
 
         //region OUTPUT: CREATE MAP JSON FILE
         //region BASE MAP JSON OBJECT
         final Map mapJson = new Map(
             new Meta(
-                "1.2.8546",
+                config.gameVersion,
                 config.mapName,
                 "2023-11-14 17:28:36.619839 UTC"),
-            new About("short desc"),
+            new About("Generated map"),
             new Settings(
                 "bomb_defusal",
                 config.ambientLightColor.intArray()),
-            new Playtesting("quick_test"),
+            new Playtesting(Playtesting.QUICK_TEST),
             new ArrayList<>(),
             List.of(new Layer(
                 "default",
@@ -423,10 +438,9 @@ public class Main {
 
         //region RESOURCES: FUNCTIONS
         final File texturesDir = new File("textures");
-        final String basePngFilename = "base";
-        final Path mapGfxPath = Paths.get(config.mapDirectoryPath, config.mapGfxPath);
+        final Path mapGfxPath = mapDirectory.resolve("gfx");
         if (!Files.exists(mapGfxPath)) {
-            Files.createDirectory(mapGfxPath);
+            Files.createDirectories(mapGfxPath);
         }
         final BiConsumer<String, String> createTexture = Sneaky.biConsumer(
             (sourceFilename, targetFilename) -> {
@@ -436,17 +450,20 @@ public class Main {
                     Files.delete(targetPath);
                 Files.copy(sourcePath, targetPath);
             });
+        final Consumer<String> createTextureSameName = Sneaky.consumer(
+            (filename) -> createTexture.accept(filename, filename));
         //endregion
 
         //region RESOURCES: ROOMS
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "room_noise_circle" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "room_noise_circle")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + ROOM_NOISE_CIRCLE + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + ROOM_NOISE_CIRCLE)
                 .stretch_when_resized(true)
                 .domain(DOMAIN_FOREGROUND)
                 .color(new Color(255, 255, 255, 150).intArray())
                 .build());
+        createTextureSameName.accept(ROOM_NOISE_CIRCLE);
         //endregion
 
         //region RESOURCES: STYLES
@@ -454,27 +471,27 @@ public class Main {
             final RoomStyle style = styles[styleId];
             final String floorId = RESOURCE_FLOOR_ID + styleId;
             mapJson.external_resources.add(
-                Node.ExternalResource.builder()
+                ExternalResource.builder()
                     .path(MAP_GFX_PATH + floorId + PNG_EXT)
                     .id(RESOURCE_ID_PREFIX + floorId)
                     .color(style.floorColor.intArray())
                     .build());
-            createTexture.accept(basePngFilename, floorId);
+            createTexture.accept(BASE_PNG_TEXTURE_FILENAME, floorId);
 
             final String wallId = RESOURCE_WALL_ID + styleId;
             mapJson.external_resources.add(
-                Node.ExternalResource.builder()
+                ExternalResource.builder()
                     .path(MAP_GFX_PATH + wallId + PNG_EXT)
                     .id(RESOURCE_ID_PREFIX + wallId)
                     .domain(DOMAIN_PHYSICAL)
                     .color(style.wallColor.intArray())
                     .as_physical(AS_PHYSICAL_DEFAULT)
                     .build());
-            createTexture.accept(basePngFilename, wallId);
+            createTexture.accept(BASE_PNG_TEXTURE_FILENAME, wallId);
 
             final String patternWallTarget = "style" + styleId + "_pattern_wall";
             mapJson.external_resources.add(
-                Node.ExternalResource.builder()
+                ExternalResource.builder()
                     .path(MAP_GFX_PATH + patternWallTarget + PNG_EXT)
                     .id(RESOURCE_ID_PREFIX + patternWallTarget)
                     .domain(DOMAIN_FOREGROUND)
@@ -484,7 +501,7 @@ public class Main {
 
             final String patternFloorTarget = "style" + styleId + "_pattern_floor";
             mapJson.external_resources.add(
-                Node.ExternalResource.builder()
+                ExternalResource.builder()
                     .path(MAP_GFX_PATH + patternFloorTarget + PNG_EXT)
                     .id(RESOURCE_ID_PREFIX + patternFloorTarget)
                     .color(style.patternColorFloor.intArray())
@@ -495,10 +512,10 @@ public class Main {
 
         //region RESOURCES: CRATES
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "crate_1x1" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "crate_1x1")
-                .color(Color.WHITE.intArray())
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + CRATE_1_X_1 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + CRATE_1_X_1)
+                .color(WHITE.intArray())
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_1X1)
                     .is_see_through(true)
@@ -507,12 +524,13 @@ public class Main {
                     .is_throw_through(true)
                     .build())
                 .build());
+        createTextureSameName.accept(CRATE_1_X_1);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "crate_2x1" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "crate_2x1")
-                .color(Color.WHITE.intArray())
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + CRATE_2_X_1 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2_X_1)
+                .color(WHITE.intArray())
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X1)
                     .is_see_through(true)
@@ -521,68 +539,76 @@ public class Main {
                     .is_throw_through(true)
                     .build())
                 .build());
+        createTextureSameName.accept(CRATE_2_X_1);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "crate_2x2" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "crate_2x2")
-                .color(Color.WHITE.intArray())
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + CRATE_2_X_2 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2_X_2)
+                .color(WHITE.intArray())
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X2)
                     .build())
                 .build());
+        createTextureSameName.accept(CRATE_2_X_2);
         //endregion
 
         //region SHADOWS 1: ADD SHADOW RESOURCES
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "shadow_wall_corner" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "shadow_wall_corner")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + SHADOW_WALL_CORNER + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + SHADOW_WALL_CORNER)
                 .domain(DOMAIN_FOREGROUND)
                 .color(config.shadowTintWall.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(SHADOW_WALL_CORNER);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "shadow_wall_line" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "shadow_wall_line")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + SHADOW_WALL_LINE + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + SHADOW_WALL_LINE)
                 .domain(DOMAIN_FOREGROUND)
                 .color(config.shadowTintWall.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(SHADOW_WALL_LINE);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "shadow_floor_line")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + SHADOW_FLOOR_LINE + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_LINE)
                 .color(config.shadowTintFloor.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(SHADOW_FLOOR_LINE);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "shadow_floor_corner")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + SHADOW_FLOOR_CORNER + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_CORNER)
                 .color(config.shadowTintFloor.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(SHADOW_FLOOR_CORNER);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "line_floor" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "line_floor")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + LINE_FLOOR + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + LINE_FLOOR)
                 .color(config.blackLineFloorTint.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(LINE_FLOOR);
 
         mapJson.external_resources.add(
-            Node.ExternalResource.builder()
-                .path(MAP_GFX_PATH + "line_wall" + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + "line_wall")
+            ExternalResource.builder()
+                .path(MAP_GFX_PATH + LINE_WALL + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + LINE_WALL)
                 .color(config.blackLineWallTint.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
+        createTextureSameName.accept(LINE_WALL);
         //endregion
 
         //region SHADOWS 2: CALCULATE SHADOW TILES
@@ -670,21 +696,21 @@ public class Main {
                 room.roomSize.h * TILE_SIZE.h * (1 + (float) nextInt(1, 4) / 4)
             };
             mapJson.addNode(Node.builder()
-                .type(RESOURCE_ID_PREFIX + "room_noise_circle")
+                .type(RESOURCE_ID_PREFIX + ROOM_NOISE_CIRCLE)
                 .pos(pos.floatArray())
                 .size(size)
                 .rotation((float) nextInt(1, 359))
                 .color(color.intArray())
                 .build());
             mapJson.addNode(Node.builder()
-                .type("wandering_pixels")
+                .type(ExternalResource.WANDERING_PIXELS)
                 .pos(pos.floatArray())
                 .size(size)
                 .num_particles(100)
                 .color(color.intArray())
                 .build());
             mapJson.addNode(Node.builder()
-                .type("point_light")
+                .type(ExternalResource.POINT_LIGHT)
                 .pos(pos.floatArray())
                 .color(new Color(color.r, color.g, color.b, 15).intArray())
                 .positional_vibration(1.0f)
@@ -731,15 +757,30 @@ public class Main {
         //endregion
 
         //region NODES: SPAWNS/BOMB SITES
-        int spawnTOffset = 2;
-        int spawnCTOffset = 2;
-        int siteAOffset = 1;
-        int siteBOffset = 3;
-
-        mapJson.addBombSiteA(rooms[0].length - 2, siteAOffset, 3, 3);
-        mapJson.addBombSiteB(rooms[0].length - 2, siteBOffset, 3, 3);
-        mapJson.addSpawnT(0, spawnTOffset, 3, 3);
-        mapJson.addSpawnCT(rooms[0].length - 1, spawnCTOffset, 3, 3);
+        final Room spawnTRoom = rooms[rooms.length / 2 - 1][0];
+        final Room spawnCTRoom = rooms[rooms.length / 2 - 1][rooms[0].length - 2];
+        final Room siteARoom = rooms[0][rooms[0].length - 3];
+        final Room siteBRoom = rooms[rooms.length - 2][rooms[0].length - 3];
+        mapJson.addBombSiteA(
+            siteARoom.roomPosAbs.x + siteARoom.roomSize.w / 2,
+            siteARoom.roomPosAbs.y + siteARoom.roomSize.h / 2,
+            siteARoom.roomSize.w,
+            siteARoom.roomSize.h);
+        mapJson.addBombSiteB(
+            siteBRoom.roomPosAbs.x + siteBRoom.roomSize.w / 2,
+            siteBRoom.roomPosAbs.y + siteBRoom.roomSize.h / 2,
+            siteBRoom.roomSize.w,
+            siteBRoom.roomSize.h);
+        mapJson.addSpawnT(
+            spawnTRoom.roomPosAbs.x + spawnTRoom.roomSize.w / 2,
+            spawnTRoom.roomPosAbs.y + spawnTRoom.roomSize.h / 2,
+            spawnTRoom.roomSize.w,
+            spawnTRoom.roomSize.h);
+        mapJson.addSpawnCT(
+            spawnCTRoom.roomPosAbs.x + spawnCTRoom.roomSize.w / 2,
+            spawnCTRoom.roomPosAbs.y + spawnCTRoom.roomSize.h / 2,
+            spawnCTRoom.roomSize.w,
+            spawnCTRoom.roomSize.h);
         //endregion
 
         //region WRITE JSON FILE
@@ -748,7 +789,7 @@ public class Main {
         final String mapJsonString = objectMapper
             .writerWithDefaultPrettyPrinter()
             .writeValueAsString(mapJson);
-        final Path mapJsonFilePath = Paths.get(config.mapDirectoryPath, config.mapName + ".json");
+        final Path mapJsonFilePath = mapDirectory.resolve(config.mapName + ".json");
         System.out.println("Writing to " + mapJsonFilePath);
         Files.write(mapJsonFilePath, mapJsonString.getBytes());
         //endregion
@@ -832,8 +873,7 @@ public class Main {
     @JsonDeserialize
     public static class Configuration {
         String mapName;
-        String mapDirectoryPath;
-        String mapGfxPath;
+        String gameDirectoryPath;
         boolean cropMap;
         Point roomsCount;
         MinMaxSize roomMinMaxSize;
@@ -857,6 +897,8 @@ public class Main {
         Color patternColorWall;
         Color roomLightTintMin;
         Color roomLightTintMax;
+        String outputTextFilePath;
+        String gameVersion;
 
         public static int parseConfigEntry(String s) {
             String[] split = s.split("_");
@@ -1045,7 +1087,6 @@ public class Main {
         Rect wallVert;
         Rect doorHoriz;
         Rect doorVert;
-        boolean playableArea;
         int styleIndex;
         Size styleSize;
 
@@ -1071,7 +1112,7 @@ public class Main {
         About about;
         Settings settings;
         Playtesting playtesting;
-        List<Node.ExternalResource> external_resources;
+        List<ExternalResource> external_resources;
         List<Layer> layers;
         List<Node> nodes;
 
@@ -1100,22 +1141,22 @@ public class Main {
 
         public void addBlackLine(Point point, int rot, boolean isWall) {
             addTileNode(isWall
-                ? "line_wall"
-                : "line_floor", point.x, point.y, rot);
+                ? LINE_WALL
+                : LINE_FLOOR, point.x, point.y, rot);
         }
 
         public void addShadowCorner(Point point, int rot, int height, boolean isWall) {
             IntStream.range(0, height).forEach((i) ->
                 addTileNode(isWall
-                    ? "shadow_wall_corner"
-                    : "shadow_floor_corner", point.x, point.y, rot));
+                    ? SHADOW_WALL_CORNER
+                    : SHADOW_FLOOR_CORNER, point.x, point.y, rot));
         }
 
         public void addShadowLine(Point point, int rot, int height, boolean isWall) {
             IntStream.range(0, Math.max(0, height)).forEach((i) ->
                 addTileNode(isWall
-                    ? "shadow_wall_line"
-                    : "shadow_floor_line", point.x, point.y, rot));
+                    ? SHADOW_WALL_LINE
+                    : SHADOW_FLOOR_LINE, point.x, point.y, rot));
         }
 
         public void addBombSiteA(int x, int y, int w, int h) {
@@ -1156,6 +1197,7 @@ public class Main {
 
         @Value
         public static class Playtesting {
+            public static final String QUICK_TEST = "quick_test";
             String mode;
         }
 
@@ -1201,6 +1243,7 @@ public class Main {
             @Builder
             @Value
             public static class ExternalResource {
+                public static final String BASE_PNG_TEXTURE_FILENAME = "base";
                 String path;
                 @Builder.Default
                 String file_hash = "03364891a7e8a89057d550d2816c8756c98e951524c4a14fa7e00981e0a46a62";
@@ -1209,7 +1252,7 @@ public class Main {
                 @Builder.Default
                 float[] size = TILE_SIZE.floatArray();
                 @Builder.Default
-                int[] color = Color.WHITE.intArray();
+                int[] color = WHITE.intArray();
                 AsPhysical as_physical;
                 AsNonPhysical as_nonphysical;
                 boolean stretch_when_resized;
@@ -1221,6 +1264,19 @@ public class Main {
                 static String MAP_GFX_PATH = "gfx/";
                 static String RESOURCE_WALL_ID = "style_wall";
                 static String RESOURCE_FLOOR_ID = "style_floor";
+
+                static final String ROOM_NOISE_CIRCLE = "room_noise_circle";
+                static final String CRATE_1_X_1 = "crate_1x1";
+                static final String CRATE_2_X_1 = "crate_2x1";
+                static final String CRATE_2_X_2 = "crate_2x2";
+                static final String SHADOW_WALL_CORNER = "shadow_wall_corner";
+                static final String SHADOW_WALL_LINE = "shadow_wall_line";
+                static final String SHADOW_FLOOR_LINE = "shadow_floor_line";
+                static final String SHADOW_FLOOR_CORNER = "shadow_floor_corner";
+                static final String LINE_FLOOR = "line_floor";
+                static final String LINE_WALL = "line_wall";
+                static final String WANDERING_PIXELS = "wandering_pixels";
+                static final String POINT_LIGHT = "point_light";
             }
 
             @Value
