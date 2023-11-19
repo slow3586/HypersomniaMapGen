@@ -46,9 +46,9 @@ import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.ExternalResource.BASE_PNG_TEXTURE_FILENAME;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_1_X_1;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2_X_1;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2_X_2;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_1X1;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2X1;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2X2;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_FOREGROUND;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_PHYSICAL;
 import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_FLOOR;
@@ -73,6 +73,7 @@ public class Main {
 
     static {
         OBJECT_MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        OBJECT_MAPPER.setSerializationInclusion(JsonInclude.Include.NON_NULL);
     }
 
     public static void main(String[] args) throws IOException {
@@ -513,9 +514,12 @@ public class Main {
         //region RESOURCES: CRATES
         mapJson.external_resources.add(
             ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_1_X_1 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + CRATE_1_X_1)
+                .path(MAP_GFX_PATH + CRATE_1X1 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + CRATE_1X1)
                 .color(WHITE.intArray())
+                .domain(DOMAIN_PHYSICAL)
+                .stretch_when_resized(true)
+                .size(new Size(104, 104).floatArray())
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_1X1)
                     .is_see_through(true)
@@ -524,13 +528,14 @@ public class Main {
                     .is_throw_through(true)
                     .build())
                 .build());
-        createTextureSameName.accept(CRATE_1_X_1);
+        createTextureSameName.accept(CRATE_1X1);
 
         mapJson.external_resources.add(
             ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_2_X_1 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2_X_1)
+                .path(MAP_GFX_PATH + CRATE_2X1 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2X1)
                 .color(WHITE.intArray())
+                .domain(DOMAIN_PHYSICAL)
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X1)
                     .is_see_through(true)
@@ -539,18 +544,19 @@ public class Main {
                     .is_throw_through(true)
                     .build())
                 .build());
-        createTextureSameName.accept(CRATE_2_X_1);
+        createTextureSameName.accept(CRATE_2X1);
 
         mapJson.external_resources.add(
             ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_2_X_2 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2_X_2)
+                .path(MAP_GFX_PATH + CRATE_2X2 + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2X2)
                 .color(WHITE.intArray())
+                .domain(DOMAIN_PHYSICAL)
                 .as_physical(Node.AsPhysical.builder()
                     .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X2)
                     .build())
                 .build());
-        createTextureSameName.accept(CRATE_2_X_2);
+        createTextureSameName.accept(CRATE_2X2);
         //endregion
 
         //region SHADOWS 1: ADD SHADOW RESOURCES
@@ -756,6 +762,49 @@ public class Main {
         });
         //endregion
 
+        pointsRectArray(rooms)
+            .forEach(roomIndex -> {
+                final Room room = rooms[roomIndex.y][roomIndex.x];
+                if (roomIndex.x == 0 || roomIndex.y == 0) return;
+                final Room roomLeft = rooms[roomIndex.y][roomIndex.x - 1];
+                final Room roomUp = rooms[roomIndex.y - 1][roomIndex.x];
+                final int roomLeftOffset = roomLeft.wallVert.offset + roomLeft.wallVert.width;
+                final int roomUpOffset = roomUp.wallHoriz.offset + roomUp.wallHoriz.width;
+                final Point space = new Point(
+                    room.roomSize.w + room.wallVert.offset - roomLeftOffset,
+                    room.roomSize.h + room.wallHoriz.offset - roomUpOffset);
+                Point currentSpace = space;
+                while (true) {
+                    currentSpace = currentSpace.add(new Point(-1, -1));
+                    if (currentSpace.x >= 1 && currentSpace.y >= 1) {
+                        mapJson.addNode(Node.builder()
+                            .type(RESOURCE_ID_PREFIX + CRATE_1X1)
+                            .rotation((float) nextInt(1, 359))
+                            .size(new Size(
+                                104 + nextInt(0, 24),
+                                104 + nextInt(0, 24))
+                                .floatArray()
+                            ).pos(new Point(
+                                    (roomLeftOffset - diagonalRoomSizes[0].w + room.roomPosAbs.x + nextInt(0, space.x))
+                                        * TILE_SIZE.w
+                                        + nextInt(-TILE_SIZE.w / 2, TILE_SIZE.w / 2),
+                                    (roomUpOffset - diagonalRoomSizes[0].h + room.roomPosAbs.y + nextInt(0, space.y))
+                                        * TILE_SIZE.h
+                                        + nextInt(-TILE_SIZE.h / 2, TILE_SIZE.h / 2)
+                                ).floatArray()
+                            ).color(new Color(
+                                    nextInt(160, 210),
+                                    nextInt(160, 210),
+                                    nextInt(160, 210),
+                                    255
+                                ).intArray()
+                            ).build());
+                    } else {
+                        break;
+                    }
+                }
+            });
+
         //region NODES: SPAWNS/BOMB SITES
         final Room spawnTRoom = rooms[rooms.length / 2 - 1][0];
         final Room spawnCTRoom = rooms[rooms.length / 2 - 1][rooms[0].length - 2];
@@ -784,9 +833,7 @@ public class Main {
         //endregion
 
         //region WRITE JSON FILE
-        final ObjectMapper objectMapper = OBJECT_MAPPER;
-        objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
-        final String mapJsonString = objectMapper
+        final String mapJsonString = OBJECT_MAPPER
             .writerWithDefaultPrettyPrinter()
             .writeValueAsString(mapJson);
         final Path mapJsonFilePath = mapDirectory.resolve(config.mapName + ".json");
@@ -1197,7 +1244,7 @@ public class Main {
 
         @Value
         public static class Playtesting {
-            public static final String QUICK_TEST = "quick_test";
+            static final String QUICK_TEST = "quick_test";
             String mode;
         }
 
@@ -1257,18 +1304,17 @@ public class Main {
                 AsNonPhysical as_nonphysical;
                 boolean stretch_when_resized;
 
-                static String DOMAIN_PHYSICAL = "PHYSICAL";
-                static String DOMAIN_FOREGROUND = "FOREGROUND";
-                static String RESOURCE_ID_PREFIX = "@";
-                static String PNG_EXT = ".png";
-                static String MAP_GFX_PATH = "gfx/";
-                static String RESOURCE_WALL_ID = "style_wall";
-                static String RESOURCE_FLOOR_ID = "style_floor";
-
+                static final String DOMAIN_PHYSICAL = "PHYSICAL";
+                static final String DOMAIN_FOREGROUND = "FOREGROUND";
+                static final String RESOURCE_ID_PREFIX = "@";
+                static final String PNG_EXT = ".png";
+                static final String MAP_GFX_PATH = "gfx/";
+                static final String RESOURCE_WALL_ID = "style_wall";
+                static final String RESOURCE_FLOOR_ID = "style_floor";
                 static final String ROOM_NOISE_CIRCLE = "room_noise_circle";
-                static final String CRATE_1_X_1 = "crate_1x1";
-                static final String CRATE_2_X_1 = "crate_2x1";
-                static final String CRATE_2_X_2 = "crate_2x2";
+                static final String CRATE_1X1 = "crate_1x1";
+                static final String CRATE_2X1 = "crate_2x1";
+                static final String CRATE_2X2 = "crate_2x2";
                 static final String SHADOW_WALL_CORNER = "shadow_wall_corner";
                 static final String SHADOW_WALL_LINE = "shadow_wall_line";
                 static final String SHADOW_FLOOR_LINE = "shadow_floor_line";
@@ -1286,13 +1332,21 @@ public class Main {
                 @JsonProperty("is_static")
                 @Getter(AccessLevel.NONE)
                 boolean is_static;
+                @JsonProperty("is_see_through")
+                @Getter(AccessLevel.NONE)
                 boolean is_see_through;
+                @JsonProperty("is_throw_through")
+                @Getter(AccessLevel.NONE)
                 boolean is_throw_through;
+                @JsonProperty("is_melee_throw_through")
+                @Getter(AccessLevel.NONE)
                 boolean is_melee_throw_through;
+                @JsonProperty("is_shoot_through")
+                @Getter(AccessLevel.NONE)
                 boolean is_shoot_through;
                 CustomShape custom_shape;
 
-                static AsPhysical AS_PHYSICAL_DEFAULT = AsPhysical.builder()
+                static final AsPhysical AS_PHYSICAL_DEFAULT = AsPhysical.builder()
                     .is_static(true)
                     .build();
 
@@ -1300,19 +1354,19 @@ public class Main {
                 public static class CustomShape {
                     float[][] source_polygon;
 
-                    static CustomShape CRATE_1X1 = new CustomShape(
+                    static final CustomShape CRATE_1X1 = new CustomShape(
                         new float[][]{
-                            new float[]{-30.0f, -30.0f},
-                            new float[]{30.0f, -30.0f},
-                            new float[]{30.0f, 30.0f},
-                            new float[]{-30.0f, 30.0f}});
-                    static CustomShape CRATE_2X1 = new CustomShape(
+                            new float[]{-32.0f, -32.0f},
+                            new float[]{32.0f, -32.0f},
+                            new float[]{32.0f, 32.0f},
+                            new float[]{-32.0f, 32.0f}});
+                    static final CustomShape CRATE_2X1 = new CustomShape(
                         new float[][]{
-                            new float[]{-60.0f, -30.0f},
-                            new float[]{60.0f, -30.0f},
-                            new float[]{60.0f, 30.0f},
-                            new float[]{-60.0f, 30.0f}});
-                    static CustomShape CRATE_2X2 = new CustomShape(
+                            new float[]{-60.0f, -32.0f},
+                            new float[]{60.0f, -32.0f},
+                            new float[]{60.0f, 32.0f},
+                            new float[]{-60.0f, 32.0f}});
+                    static final CustomShape CRATE_2X2 = new CustomShape(
                         new float[][]{
                             new float[]{-60.0f, -60.0f},
                             new float[]{60.0f, -60.0f},
@@ -1325,7 +1379,7 @@ public class Main {
             public static class AsNonPhysical {
                 boolean full_illumination;
 
-                static AsNonPhysical AS_NON_PHYSICAL_DEFAULT = new AsNonPhysical(true);
+                static final AsNonPhysical AS_NON_PHYSICAL_DEFAULT = new AsNonPhysical(true);
             }
         }
     }
