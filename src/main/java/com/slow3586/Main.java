@@ -2,14 +2,23 @@ package com.slow3586;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationContext;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import io.vavr.Function1;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 import lombok.ToString;
 import lombok.Value;
+import org.apache.commons.lang3.StringUtils;
 import org.jooq.lambda.Sneaky;
 import com.slow3586.Main.Room.RoomStyle;
 
@@ -29,6 +38,7 @@ import java.util.function.BiConsumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import static com.slow3586.Main.Configuration.parseConfigEntry;
 import static com.slow3586.Main.MapTile.TileType.WALL;
 import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
@@ -43,83 +53,57 @@ import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_WALL_ID;
 import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
-    private static final MapTile VIRTUAL_TILE = new MapTile(
-        WALL,
-        0,
-        false,
-        false,
-        0);
-    public static final int WALL_HEIGHT = 4;
-    private static boolean randomEnabled = true;
-    private static Random random;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    static ConfigurationRandom configRandom;
+    static Random baseRandom;
+    static Configuration config;
+
+    static {
+        OBJECT_MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
 
     public static void main(String[] args) throws IOException {
-        //region GENERATION PARAMETERS
-        random = new Random(129);
-        final String mapName = "new_gen_test";
-        final String mapDirectoryPath = "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Hypersomnia\\user\\projects\\new_gen_test";
-        final Path mapGfxPath = Paths.get(mapDirectoryPath, "gfx");
-        final boolean cropMap = true;
-        final Point roomsCountParam = new Point(6 + 1, 4 + 1);
-        final MinMaxSize roomMinMaxSize = new MinMaxSize(
-            new Size(5, 5),
-            new Size(8, 8));
-        final MinMaxSize wallMinMaxSize = new MinMaxSize(
-            new Size(1, 1),
-            new Size(3, 3));
-        final Point wallMaxOffset = new Point(2, 2);
-        final MinMaxSize doorMinMaxWidth = new MinMaxSize(
-            new Size(2, 2),
-            new Size(4, 4));
-        final int styleCount = 3;
-        final MinMaxSize styleSizeMinMaxSize = new MinMaxSize(
-            new Size(0, 0),
-            new Size(2, 2));
-        final Color ambientLightColor = new Color(200, 150, 225, 225);
-        final Color shadowTintFloor = new Color(255, 255, 255, 40);
-        final Color shadowTintWall = new Color(255, 255, 255, 25);
-        final Color blackLineFloorTint = new Color(255, 255, 255, 20);
-        final Color blackLineWallTint = new Color(255, 255, 255, 30);
-        final int floorTintBase = 110;
-        final int wallTintBase = 230;
-        final int floorTintChange = 15;
-        final int wallTintChange = 20;
-        //endregion
+        final String configRandomStr = Files.readString(Path.of("config_random.json"));
+        configRandom = OBJECT_MAPPER.readValue(configRandomStr, ConfigurationRandom.class);
+        baseRandom = new Random(configRandom.seed);
+
+        final String configStr = Files.readString(Path.of("config.json"));
+        config = OBJECT_MAPPER.readValue(configStr, Configuration.class);
 
         //region GENERATION: ROOMS
         //region RANDOMIZE DIAGONAL ROOM SIZES
         final Size[] diagonalRoomSizes = Stream.generate(() -> new Size(
-                nextInt(roomMinMaxSize.min.w, roomMinMaxSize.max.w),
-                nextInt(roomMinMaxSize.min.h, roomMinMaxSize.max.h)))
-            .limit(Math.max(roomsCountParam.x, roomsCountParam.y))
+                nextInt(config.roomMinMaxSize.min.w, config.roomMinMaxSize.max.w),
+                nextInt(config.roomMinMaxSize.min.h, config.roomMinMaxSize.max.h)))
+            .limit(Math.max(config.roomsCount.x, config.roomsCount.y))
             .toArray(Size[]::new);
         //endregion
 
         //region RANDOMIZE ROOM STYLES
-        final RoomStyle[] styles = IntStream.range(0, styleCount)
+        final RoomStyle[] styles = IntStream.range(0, config.styleCount)
             .boxed()
             .map((i) -> new RoomStyle(
                 i,
                 new Color(
-                    floorTintBase + floorTintChange * i,
-                    floorTintBase + floorTintChange * i,
-                    floorTintBase + floorTintChange * i,
+                    config.floorTintBase + config.floorTintPerHeight * i,
+                    config.floorTintBase + config.floorTintPerHeight * i,
+                    config.floorTintBase + config.floorTintPerHeight * i,
                     255),
                 new Color(
-                    wallTintBase + wallTintChange * i,
-                    wallTintBase + wallTintChange * i,
-                    wallTintBase + wallTintChange * i,
+                    config.wallTintBase + config.wallTintPerHeight * i,
+                    config.wallTintBase + config.wallTintPerHeight * i,
+                    config.wallTintBase + config.wallTintPerHeight * i,
                     255),
-                nextInt(0, 11),
-                nextInt(0, 11),
-                new Color(255, 255, 255, nextInt(15, 25)),
-                new Color(255, 255, 255, nextInt(15, 25)))
+                nextInt(0, config.patternResourceCount),
+                nextInt(0, config.patternResourceCount),
+                config.patternColorFloor,
+                config.patternColorWall)
             ).toArray(RoomStyle[]::new);
         //endregion
 
 
-        final Room[][] rooms = new Room[roomsCountParam.y][roomsCountParam.x];
-        pointsRect(0, 0, roomsCountParam.x, roomsCountParam.y)
+        final Room[][] rooms = new Room[config.roomsCount.y][config.roomsCount.x];
+        pointsRect(0, 0, config.roomsCount.x, config.roomsCount.y)
             .forEach(roomIndex -> {
                 //region CALCULATE ABSOLUTE ROOM POSITION
                 final Point roomPosAbs = new Point(
@@ -135,11 +119,11 @@ public class Main {
 
                 //region RANDOMIZE WALL
                 final Size wallSize = new Size(
-                    nextInt(wallMinMaxSize.min.w, wallMinMaxSize.max.w),
-                    nextInt(wallMinMaxSize.min.h, wallMinMaxSize.max.h));
+                    nextInt(config.wallMinMaxSize.min.w, config.wallMinMaxSize.max.w),
+                    nextInt(config.wallMinMaxSize.min.h, config.wallMinMaxSize.max.h));
                 final Point wallOffset = new Point(
-                    -nextInt(0, Math.min(wallSize.w, wallMaxOffset.x)),
-                    -nextInt(0, Math.min(wallSize.h, wallMaxOffset.y)));
+                    -nextInt(0, Math.min(wallSize.w, config.wallMaxOffset.x)),
+                    -nextInt(0, Math.min(wallSize.h, config.wallMaxOffset.y)));
                 //endregion
 
                 //region CALCULATE BASE ROOM SIZE
@@ -156,19 +140,19 @@ public class Main {
                     doorSize = new Size(
                         roomIndex.y == rooms.length - 1
                             ? 0
-                            : nextInt(doorMinMaxWidth.min.w,
-                                Math.min(doorMinMaxWidth.max.w, realRoomSize.w)),
+                            : nextInt(config.doorMinMaxWidth.min.w,
+                                Math.min(config.doorMinMaxWidth.max.w, realRoomSize.w)),
                         roomIndex.x == rooms[0].length - 1
                             ? 0
-                            : nextInt(doorMinMaxWidth.min.h,
-                                Math.min(doorMinMaxWidth.max.h, realRoomSize.h)));
+                            : nextInt(config.doorMinMaxWidth.min.h,
+                                Math.min(config.doorMinMaxWidth.max.h, realRoomSize.h)));
                     doorOffset = new Point(
                         roomIndex.y == rooms.length - 1
                             ? 0
-                            : nextInt(1, doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w),
+                            : nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w),
                         roomIndex.x == rooms[0].length - 1
                             ? 0
-                            : nextInt(1, doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h));
+                            : nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h));
                 } else {
                     doorSize = new Size(0, 0);
                     doorOffset = new Point(0, 0);
@@ -176,14 +160,14 @@ public class Main {
                 //endregion
 
                 //region RANDOMIZE STYLE
-                final int styleIndex = nextInt(0, 3);
+                final int styleIndex = nextInt(0, config.styleCount);
                 final Size styleSize = new Size(
                     roomIndex.x == rooms[0].length - 1
                         ? 1
-                        : nextInt(styleSizeMinMaxSize.min.w, styleSizeMinMaxSize.max.w + 1),
+                        : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
                     roomIndex.y == rooms.length - 1
                         ? 1
-                        : nextInt(styleSizeMinMaxSize.min.h, styleSizeMinMaxSize.max.h + 1));
+                        : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
                 //endregion
 
                 //region PUT ROOM INTO ROOMS ARRAY
@@ -215,10 +199,10 @@ public class Main {
         final MapTile[][] mapTilesUncrop =
             pointsRectRows(0, 0,
                 Arrays.stream(diagonalRoomSizes)
-                    .mapToInt(r -> r.w + wallMaxOffset.x)
+                    .mapToInt(r -> r.w + config.wallMaxOffset.x)
                     .sum() + 1,
                 Arrays.stream(diagonalRoomSizes)
-                    .mapToInt(r -> r.h + wallMaxOffset.y)
+                    .mapToInt(r -> r.h + config.wallMaxOffset.y)
                     .sum() + 1)
                 .stream()
                 .map(row -> row.stream()
@@ -246,10 +230,10 @@ public class Main {
                     room.wallHoriz.width
                 ).forEach(pointAbs ->
                     mapTilesUncrop[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.CONNECTOR)
+                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
                             && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
-                            ? MapTile.TileType.CONNECTOR
+                            ? MapTile.TileType.DOOR
                             : WALL);
                 //endregion
 
@@ -261,10 +245,10 @@ public class Main {
                     room.roomSize.h
                 ).forEach(pointAbs ->
                     mapTilesUncrop[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.CONNECTOR)
+                        (mapTilesUncrop[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
                             && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
-                            ? MapTile.TileType.CONNECTOR
+                            ? MapTile.TileType.DOOR
                             : WALL);
                 //endregion
 
@@ -300,7 +284,7 @@ public class Main {
                         tile.styleIndex = room.styleIndex;
                         tile.height = styles[room.styleIndex].height
                             + (tile.tileType == WALL
-                            ? WALL_HEIGHT
+                            ? config.wallHeight
                             : 0);
                     });
                 //endregion
@@ -310,7 +294,7 @@ public class Main {
 
         //region GENERATION: CROP MAP
         final MapTile[][] mapTilesCrop;
-        if (cropMap) {
+        if (config.cropMap) {
             final Size croppedMapSize = new Size(
                 Arrays.stream(diagonalRoomSizes)
                     .limit(rooms[0].length)
@@ -344,7 +328,7 @@ public class Main {
         // #_    _#
         // _# OR #_
         final Function1<MapTile, Boolean> isFloor = (s) -> s.tileType == MapTile.TileType.FLOOR
-            || s.tileType == MapTile.TileType.CONNECTOR;
+            || s.tileType == MapTile.TileType.DOOR;
         for (int iter = 0; iter < 2; iter++) {
             for (int y = 1; y < mapTilesCrop.length - 1; y++) {
                 for (int x = 1; x < mapTilesCrop[y].length - 1; x++) {
@@ -356,16 +340,16 @@ public class Main {
                         || (!floor && !floorRD && floorR && floorD)
                     ) {
                         if (!isFloor.apply(mapTilesCrop[y][x]))
-                            mapTilesCrop[y][x].height -= WALL_HEIGHT;
+                            mapTilesCrop[y][x].height -= config.wallHeight;
                         mapTilesCrop[y][x].tileType = MapTile.TileType.FLOOR;
                         if (!isFloor.apply(mapTilesCrop[y][x + 1]))
-                            mapTilesCrop[y][x + 1].height -= WALL_HEIGHT;
+                            mapTilesCrop[y][x + 1].height -= config.wallHeight;
                         mapTilesCrop[y][x + 1].tileType = MapTile.TileType.FLOOR;
                         if (!isFloor.apply(mapTilesCrop[y + 1][x]))
-                            mapTilesCrop[y + 1][x].height -= WALL_HEIGHT;
+                            mapTilesCrop[y + 1][x].height -= config.wallHeight;
                         mapTilesCrop[y + 1][x].tileType = MapTile.TileType.FLOOR;
                         if (!isFloor.apply(mapTilesCrop[y + 1][x + 1]))
-                            mapTilesCrop[y + 1][x + 1].height -= WALL_HEIGHT;
+                            mapTilesCrop[y + 1][x + 1].height -= config.wallHeight;
                         mapTilesCrop[y + 1][x + 1].tileType = MapTile.TileType.FLOOR;
                     }
                 }
@@ -393,7 +377,7 @@ public class Main {
                     final MapTile mapTile = mapTilesCrop[point.y][point.x];
                     wallJoinerRow.append(mapTile.tileType == WALL
                         ? "#"
-                        : mapTile.tileType == MapTile.TileType.CONNECTOR
+                        : mapTile.tileType == MapTile.TileType.DOOR
                             ? "."
                             : "_");
                     heightJoinerRow.append(mapTile.height);
@@ -423,12 +407,12 @@ public class Main {
         final Map mapJson = new Map(
             new Meta(
                 "1.2.8546",
-                mapName,
+                config.mapName,
                 "2023-11-14 17:28:36.619839 UTC"),
             new About("short desc"),
             new Settings(
                 "bomb_defusal",
-                ambientLightColor.intArray()),
+                config.ambientLightColor.intArray()),
             new Playtesting("quick_test"),
             new ArrayList<>(),
             List.of(new Layer(
@@ -440,6 +424,7 @@ public class Main {
         //region RESOURCES: FUNCTIONS
         final File texturesDir = new File("textures");
         final String basePngFilename = "base";
+        final Path mapGfxPath = Paths.get(config.mapDirectoryPath, config.mapGfxPath);
         if (!Files.exists(mapGfxPath)) {
             Files.createDirectory(mapGfxPath);
         }
@@ -554,7 +539,7 @@ public class Main {
                 .path(MAP_GFX_PATH + "shadow_wall_corner" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_wall_corner")
                 .domain(DOMAIN_FOREGROUND)
-                .color(shadowTintWall.intArray())
+                .color(config.shadowTintWall.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
@@ -563,7 +548,7 @@ public class Main {
                 .path(MAP_GFX_PATH + "shadow_wall_line" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_wall_line")
                 .domain(DOMAIN_FOREGROUND)
-                .color(shadowTintWall.intArray())
+                .color(config.shadowTintWall.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
@@ -571,7 +556,7 @@ public class Main {
             Node.ExternalResource.builder()
                 .path(MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_floor_line")
-                .color(shadowTintFloor.intArray())
+                .color(config.shadowTintFloor.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
@@ -579,7 +564,7 @@ public class Main {
             Node.ExternalResource.builder()
                 .path(MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_floor_corner")
-                .color(shadowTintFloor.intArray())
+                .color(config.shadowTintFloor.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
@@ -587,7 +572,7 @@ public class Main {
             Node.ExternalResource.builder()
                 .path(MAP_GFX_PATH + "line_floor" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "line_floor")
-                .color(blackLineFloorTint.intArray())
+                .color(config.blackLineFloorTint.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
@@ -595,7 +580,7 @@ public class Main {
             Node.ExternalResource.builder()
                 .path(MAP_GFX_PATH + "line_wall" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "line_wall")
-                .color(blackLineWallTint.intArray())
+                .color(config.blackLineWallTint.intArray())
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         //endregion
@@ -610,7 +595,7 @@ public class Main {
                     || thatPoint.y < 0
                     || thatPoint.x >= mapTilesCrop[0].length
                     || thatPoint.y >= mapTilesCrop.length)
-                    ? VIRTUAL_TILE
+                    ? MapTile.VIRTUAL_TILE
                     : mapTilesCrop[thatPoint.y][thatPoint.x];
                 final boolean thatIsWall = otherTile.tileType == WALL;
                 final int hDif = otherTile.height - currentTile.height;
@@ -666,6 +651,9 @@ public class Main {
                 final Point pos1 = new Point(
                     (room.roomPosAbs.x + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].w),
                     (room.roomPosAbs.y + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].h));
+                if (pos1.x >= mapTilesCrop[0].length || pos1.y >= mapTilesCrop.length) {
+                    continue;
+                }
                 final MapTile mapTile = mapTilesCrop[pos1.y][pos1.x];
                 if (mapTile.visible && mapTile.tileType != WALL) {
                     pos = pos1.mul(TILE_SIZE.toPoint());
@@ -673,11 +661,10 @@ public class Main {
                 }
             }
             final Color color = new Color(
-                nextInt(20, 200),
-                nextInt(20, 200),
-                nextInt(20, 200),
-                nextInt(20, 40)
-            );
+                nextInt(config.roomLightTintMin.r, config.roomLightTintMax.r),
+                nextInt(config.roomLightTintMin.g, config.roomLightTintMax.g),
+                nextInt(config.roomLightTintMin.b, config.roomLightTintMax.b),
+                nextInt(config.roomLightTintMin.a, config.roomLightTintMax.a));
             final float[] size = {
                 room.roomSize.w * TILE_SIZE.w * (1 + (float) nextInt(1, 4) / 4),
                 room.roomSize.h * TILE_SIZE.h * (1 + (float) nextInt(1, 4) / 4)
@@ -756,12 +743,12 @@ public class Main {
         //endregion
 
         //region WRITE JSON FILE
-        final ObjectMapper objectMapper = new ObjectMapper();
+        final ObjectMapper objectMapper = OBJECT_MAPPER;
         objectMapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
         final String mapJsonString = objectMapper
             .writerWithDefaultPrettyPrinter()
             .writeValueAsString(mapJson);
-        final Path mapJsonFilePath = Paths.get(mapDirectoryPath, mapName + ".json");
+        final Path mapJsonFilePath = Paths.get(config.mapDirectoryPath, config.mapName + ".json");
         System.out.println("Writing to " + mapJsonFilePath);
         Files.write(mapJsonFilePath, mapJsonString.getBytes());
         //endregion
@@ -778,22 +765,29 @@ public class Main {
         boolean visible;
         Integer height;
 
+        public static final MapTile VIRTUAL_TILE = new MapTile(
+            WALL,
+            0,
+            false,
+            false,
+            0);
+
         public enum TileType {
             FLOOR,
             WALL,
-            CONNECTOR
+            DOOR
         }
     }
 
     public static int nextInt(int from, int to) {
-        return randomEnabled
-            ? random.nextInt(from, to)
+        return configRandom.randomEnabled
+            ? baseRandom.nextInt(from, to)
             : (int) Math.floor((double) (from + to) / 2);
     }
 
     public static float nextFloat(float from, float to) {
-        return randomEnabled
-            ? random.nextFloat(from, to)
+        return configRandom.randomEnabled
+            ? baseRandom.nextFloat(from, to)
             : (int) Math.floor((double) (from + to) / 2);
     }
 
@@ -827,6 +821,52 @@ public class Main {
         return points;
     }
 
+    @Data
+    @JsonDeserialize
+    public static class ConfigurationRandom {
+        boolean randomEnabled;
+        long seed;
+    }
+
+    @Data
+    @JsonDeserialize
+    public static class Configuration {
+        String mapName;
+        String mapDirectoryPath;
+        String mapGfxPath;
+        boolean cropMap;
+        Point roomsCount;
+        MinMaxSize roomMinMaxSize;
+        MinMaxSize wallMinMaxSize;
+        Point wallMaxOffset;
+        MinMaxSize doorMinMaxWidth;
+        int styleCount;
+        MinMaxSize styleSizeMinMaxSize;
+        Color ambientLightColor;
+        Color shadowTintFloor;
+        Color shadowTintWall;
+        Color blackLineFloorTint;
+        Color blackLineWallTint;
+        int floorTintBase;
+        int wallTintBase;
+        int floorTintPerHeight;
+        int wallTintPerHeight;
+        int wallHeight;
+        int patternResourceCount;
+        Color patternColorFloor;
+        Color patternColorWall;
+        Color roomLightTintMin;
+        Color roomLightTintMax;
+
+        public static int parseConfigEntry(String s) {
+            String[] split = s.split("_");
+            if (split.length > 2) throw new IllegalArgumentException(s + ": split by _ length > 2");
+            return split.length == 2
+                ? nextInt(Integer.parseInt(split[0]), Integer.parseInt(split[1]))
+                : Integer.parseInt(split[0]);
+        }
+    }
+
     @Value
     public static class ShadowCalcTileInfo {
         Entry left;
@@ -849,6 +889,7 @@ public class Main {
     }
 
     @Value
+    @JsonDeserialize(using = Point.PointDeserializer.class)
     public static class Point {
         int x;
         int y;
@@ -873,9 +914,32 @@ public class Main {
         public float[] floatArray() {
             return new float[]{(float) x, (float) y};
         }
+
+        public static class PointDeserializer extends StdDeserializer<Point> {
+            protected PointDeserializer() {
+                super(Point.class);
+            }
+
+            @Override
+            public Point deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    StringUtils.replace(
+                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
+                        " ",
+                        ""),
+                    ",");
+                return new Point(
+                    parseConfigEntry(string[0]),
+                    parseConfigEntry(string[1]));
+            }
+        }
     }
 
     @Value
+    @JsonDeserialize(using = Size.SizeDeserializer.class)
     public static class Size {
         public static Size TILE_SIZE = new Size(128, 128);
         int w;
@@ -886,9 +950,32 @@ public class Main {
         }
 
         public Point toPoint() {return new Point(w, h);}
+
+        public static class SizeDeserializer extends StdDeserializer<Size> {
+            protected SizeDeserializer() {
+                super(Size.class);
+            }
+
+            @Override
+            public Size deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    StringUtils.replace(
+                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
+                        " ",
+                        ""),
+                    ",");
+                return new Size(
+                    parseConfigEntry(string[0]),
+                    parseConfigEntry(string[1]));
+            }
+        }
     }
 
     @Value
+    @JsonDeserialize(using = Color.ColorDeserializer.class)
     public static class Color {
         public static Color WHITE = new Color(255, 255, 255, 255);
         int r;
@@ -899,12 +986,55 @@ public class Main {
         public int[] intArray() {
             return new int[]{r, g, b, a};
         }
+
+        public static class ColorDeserializer extends StdDeserializer<Color> {
+            protected ColorDeserializer() {
+                super(Color.class);
+            }
+
+            @Override
+            public Color deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    StringUtils.replace(
+                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
+                        " ",
+                        ""),
+                    ",");
+                return new Color(
+                    parseConfigEntry(string[0]),
+                    parseConfigEntry(string[1]),
+                    parseConfigEntry(string[2]),
+                    parseConfigEntry(string[3]));
+            }
+        }
     }
 
     @Value
+    @JsonDeserialize(using = MinMaxSize.MinMaxSizeDeserializer.class)
     public static class MinMaxSize {
         Size min;
         Size max;
+
+        public static class MinMaxSizeDeserializer extends StdDeserializer<MinMaxSize> {
+            public MinMaxSizeDeserializer() {
+                super(MinMaxSize.class);
+            }
+
+            @Override
+            public MinMaxSize deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                return new MinMaxSize(
+                    new Size(Integer.parseInt(string[0]), Integer.parseInt(string[1])),
+                    new Size(Integer.parseInt(string[2]), Integer.parseInt(string[3])));
+            }
+        }
     }
 
     @Value
