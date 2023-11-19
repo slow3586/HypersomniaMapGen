@@ -26,14 +26,13 @@ import java.util.Random;
 import java.util.StringJoiner;
 import java.util.UUID;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.slow3586.Main.MapTile.TileType.WALL;
 import static com.slow3586.Main.Settings.*;
-import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL;
-import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL;
+import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
+import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_FOREGROUND;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_PHYSICAL;
 import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_FLOOR_ID;
@@ -82,7 +81,7 @@ public class Main {
         final Color blackLineFloorTint = new Color(255, 255, 255, 20);
         final Color blackLineWallTint = new Color(255, 255, 255, 30);
         final int floorTintBase = 110;
-        final int wallTintBase = 210;
+        final int wallTintBase = 230;
         final int floorTintChange = 15;
         final int wallTintChange = 20;
         //endregion
@@ -484,7 +483,7 @@ public class Main {
                     .id(RESOURCE_ID_PREFIX + wallId)
                     .domain(DOMAIN_PHYSICAL)
                     .color(style.wallColor.intArray())
-                    .as_physical(AS_PHYSICAL)
+                    .as_physical(AS_PHYSICAL_DEFAULT)
                     .build());
             createTexture.accept(basePngFilename, wallId);
 
@@ -509,6 +508,46 @@ public class Main {
         }
         //endregion
 
+        //region RESOURCES: CRATES
+        mapJson.external_resources.add(
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "crate_1x1" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "crate_1x1")
+                .color(Color.WHITE.intArray())
+                .as_physical(Node.AsPhysical.builder()
+                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_1X1)
+                    .is_see_through(true)
+                    .is_shoot_through(true)
+                    .is_melee_throw_through(true)
+                    .is_throw_through(true)
+                    .build())
+                .build());
+
+        mapJson.external_resources.add(
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "crate_2x1" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "crate_2x1")
+                .color(Color.WHITE.intArray())
+                .as_physical(Node.AsPhysical.builder()
+                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X1)
+                    .is_see_through(true)
+                    .is_shoot_through(true)
+                    .is_melee_throw_through(true)
+                    .is_throw_through(true)
+                    .build())
+                .build());
+
+        mapJson.external_resources.add(
+            Node.ExternalResource.builder()
+                .path(MAP_GFX_PATH + "crate_2x2" + PNG_EXT)
+                .id(RESOURCE_ID_PREFIX + "crate_2x2")
+                .color(Color.WHITE.intArray())
+                .as_physical(Node.AsPhysical.builder()
+                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X2)
+                    .build())
+                .build());
+        //endregion
+
         //region SHADOWS 1: ADD SHADOW RESOURCES
         mapJson.external_resources.add(
             Node.ExternalResource.builder()
@@ -516,7 +555,7 @@ public class Main {
                 .id(RESOURCE_ID_PREFIX + "shadow_wall_corner")
                 .domain(DOMAIN_FOREGROUND)
                 .color(shadowTintWall.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
         mapJson.external_resources.add(
@@ -525,7 +564,7 @@ public class Main {
                 .id(RESOURCE_ID_PREFIX + "shadow_wall_line")
                 .domain(DOMAIN_FOREGROUND)
                 .color(shadowTintWall.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
         mapJson.external_resources.add(
@@ -533,7 +572,7 @@ public class Main {
                 .path(MAP_GFX_PATH + "shadow_floor_line" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_floor_line")
                 .color(shadowTintFloor.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
         mapJson.external_resources.add(
@@ -541,7 +580,7 @@ public class Main {
                 .path(MAP_GFX_PATH + "shadow_floor_corner" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "shadow_floor_corner")
                 .color(shadowTintFloor.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
         mapJson.external_resources.add(
@@ -549,7 +588,7 @@ public class Main {
                 .path(MAP_GFX_PATH + "line_floor" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "line_floor")
                 .color(blackLineFloorTint.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
 
         mapJson.external_resources.add(
@@ -557,9 +596,10 @@ public class Main {
                 .path(MAP_GFX_PATH + "line_wall" + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + "line_wall")
                 .color(blackLineWallTint.intArray())
-                .as_nonphysical(AS_NON_PHYSICAL)
+                .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         //endregion
+
         //region SHADOWS 2: CALCULATE SHADOW TILES
         pointsRectArray(mapTilesCrop).forEach(thisPoint -> {
             final MapTile currentTile = mapTilesCrop[thisPoint.y][thisPoint.x];
@@ -632,13 +672,13 @@ public class Main {
                     break;
                 }
             }
-            Color color = new Color(
+            final Color color = new Color(
                 nextInt(20, 200),
                 nextInt(20, 200),
                 nextInt(20, 200),
                 nextInt(20, 40)
             );
-            float[] size = {
+            final float[] size = {
                 room.roomSize.w * TILE_SIZE.w * (1 + (float) nextInt(1, 4) / 4),
                 room.roomSize.h * TILE_SIZE.h * (1 + (float) nextInt(1, 4) / 4)
             };
@@ -1054,20 +1094,52 @@ public class Main {
             }
 
             @Value
+            @Builder
             public static class AsPhysical {
                 // lombok "'is' getter" fix
                 @JsonProperty("is_static")
                 @Getter(AccessLevel.NONE)
                 boolean is_static;
+                boolean is_see_through;
+                boolean is_throw_through;
+                boolean is_melee_throw_through;
+                boolean is_shoot_through;
+                CustomShape custom_shape;
 
-                static AsPhysical AS_PHYSICAL = new AsPhysical(true);
+                static AsPhysical AS_PHYSICAL_DEFAULT = AsPhysical.builder()
+                    .is_static(true)
+                    .build();
+
+                @Value
+                public static class CustomShape {
+                    float[][] source_polygon;
+
+                    static CustomShape CRATE_1X1 = new CustomShape(
+                        new float[][]{
+                            new float[]{-30.0f, -30.0f},
+                            new float[]{30.0f, -30.0f},
+                            new float[]{30.0f, 30.0f},
+                            new float[]{-30.0f, 30.0f}});
+                    static CustomShape CRATE_2X1 = new CustomShape(
+                        new float[][]{
+                            new float[]{-60.0f, -30.0f},
+                            new float[]{60.0f, -30.0f},
+                            new float[]{60.0f, 30.0f},
+                            new float[]{-60.0f, 30.0f}});
+                    static CustomShape CRATE_2X2 = new CustomShape(
+                        new float[][]{
+                            new float[]{-60.0f, -60.0f},
+                            new float[]{60.0f, -60.0f},
+                            new float[]{60.0f, 60.0f},
+                            new float[]{-60.0f, 60.0f}});
+                }
             }
 
             @Value
             public static class AsNonPhysical {
                 boolean full_illumination;
 
-                static AsNonPhysical AS_NON_PHYSICAL = new AsNonPhysical(true);
+                static AsNonPhysical AS_NON_PHYSICAL_DEFAULT = new AsNonPhysical(true);
             }
         }
     }
