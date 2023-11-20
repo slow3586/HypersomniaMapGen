@@ -67,5 +67,19 @@
 	"outputTextFilePath_comment": "STRING: Path to the text file into which basic output is printed",
 	"outputTextFilePath": "out.txt",
 	"gameVersion_comment": "STRING: Game version, change if necessary",
-	"gameVersion": "1.2.8546"
+	"gameVersion": "1.2.8546",
+	"crateBlockingChance_comment": "INTEGER: Chance that a spawned crate will be blocking",
+	"crateBlockingChance": 50,
+	"cratesMinMaxSpaceLeftPerRoom_comment": "MINMAXSIZE: Each crate takes up 1x1 space until this much space is left in a room",
+	"cratesMinMaxSpaceLeftPerRoom": "1,1,3,3",
+	"crateBlockingMinMaxTint_comment": "MINMAXCOLOR: Randomized blocking crate tint",
+	"crateBlockingMinMaxTint": "210,210,210,210,230,230,230,220",
+	"crateNonBlockingMinMaxTint_comment": "MINMAXCOLOR: Randomized non blocking crate tint",
+	"crateNonBlockingMinMaxTint": "120,120,120,200,140,140,140,210",
+	"crateMinMaxSize_comment": "MINMAXSIZE: Randomized crate size",
+	"crateMinMaxSize": "104,104,104,104",
+	"cratesBlockingPerStyle_comment": "INTEGER: Amount of blocking crate styles per room style",
+	"cratesBlockingPerStyle": 3,
+	"cratesNonBlockingPerStyle_comment": "INTEGER: Amount of non blocking crate styles per room style",
+	"cratesNonBlockingPerStyle": 3
 }

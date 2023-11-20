@@ -46,9 +46,8 @@ import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.ExternalResource.BASE_PNG_TEXTURE_FILENAME;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_1X1;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2X1;
-import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_2X2;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_BLOCKING;
+import static com.slow3586.Main.Settings.Node.ExternalResource.CRATE_NON_BLOCKING;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_FOREGROUND;
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_PHYSICAL;
 import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_FLOOR;
@@ -156,31 +155,31 @@ public class Main {
                 final boolean needHorizontalDoor = roomIndex.y > 0 && roomIndex.y < rooms.length - 1;
                 doorSize = new Size(
                     needHorizontalDoor
-                        ? nextInt(config.doorMinMaxWidth.min.w,
+                    ? nextInt(config.doorMinMaxWidth.min.w,
                         Math.min(config.doorMinMaxWidth.max.w, realRoomSize.w))
-                        : 0,
+                    : 0,
                     needVerticalDoor
-                        ? nextInt(config.doorMinMaxWidth.min.h,
+                    ? nextInt(config.doorMinMaxWidth.min.h,
                         Math.min(config.doorMinMaxWidth.max.h, realRoomSize.h))
-                        : 0);
+                    : 0);
                 doorOffset = new Point(
                     needHorizontalDoor
-                        ? nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w)
-                        : 0,
+                    ? nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w)
+                    : 0,
                     needVerticalDoor
-                        ? nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h)
-                        : 0);
+                    ? nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h)
+                    : 0);
                 //endregion
 
                 //region RANDOMIZE STYLE
                 final int styleIndex = nextInt(0, config.styleCount);
                 final Size styleSize = new Size(
                     roomIndex.x == rooms[0].length - 1
-                        ? 1
-                        : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
+                    ? 1
+                    : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
                     roomIndex.y == rooms.length - 1
-                        ? 1
-                        : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
+                    ? 1
+                    : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
                 //endregion
 
                 //region PUT ROOM INTO ROOMS ARRAY
@@ -245,8 +244,8 @@ public class Main {
                         (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
                             && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
-                            ? MapTile.TileType.DOOR
-                            : WALL);
+                        ? MapTile.TileType.DOOR
+                        : WALL);
                 //endregion
 
                 //region WALL VERTICAL
@@ -260,8 +259,8 @@ public class Main {
                         (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
                             || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
                             && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
-                            ? MapTile.TileType.DOOR
-                            : WALL);
+                        ? MapTile.TileType.DOOR
+                        : WALL);
                 //endregion
 
                 //region CARCASS HORIZONTAL
@@ -296,8 +295,8 @@ public class Main {
                         tile.styleIndex = room.styleIndex;
                         tile.height = styles[room.styleIndex].height
                             + (tile.tileType == WALL
-                            ? config.wallHeight
-                            : 0);
+                               ? config.wallHeight
+                               : 0);
                     });
                 //endregion
                 //endregion
@@ -391,17 +390,18 @@ public class Main {
                 final StringBuilder carcassJoinerRow = new StringBuilder();
                 row.forEach(point -> {
                     final MapTile mapTile = mapTilesCrop[point.y][point.x];
-                    wallJoinerRow.append(mapTile.tileType == WALL
+                    wallJoinerRow.append(
+                        mapTile.tileType == WALL
                         ? "#"
                         : mapTile.tileType == MapTile.TileType.DOOR
-                            ? "."
-                            : "_");
+                          ? "."
+                          : "_");
                     heightJoinerRow.append(mapTile.height);
                     styleIndexJoinerRow.append(mapTile.styleIndex);
                     carcassJoinerRow.append(
                         mapTile.carcass || point.x == 0 || point.y == 0
-                            ? "#"
-                            : "_");
+                        ? "#"
+                        : "_");
                 });
                 wallJoiner.add(wallJoinerRow.toString());
                 heightJoiner.add(heightJoinerRow.toString());
@@ -468,95 +468,92 @@ public class Main {
         //endregion
 
         //region RESOURCES: STYLES
-        for (int styleId = 0; styleId < styles.length; styleId++) {
-            final RoomStyle style = styles[styleId];
-            final String floorId = RESOURCE_FLOOR_ID + styleId;
-            mapJson.external_resources.add(
-                ExternalResource.builder()
-                    .path(MAP_GFX_PATH + floorId + PNG_EXT)
-                    .id(RESOURCE_ID_PREFIX + floorId)
-                    .color(style.floorColor.intArray())
-                    .build());
-            createTexture.accept(BASE_PNG_TEXTURE_FILENAME, floorId);
+        IntStream.range(0, styles.length)
+            .boxed()
+            .forEach((final Integer styleIndex) -> {
+                final RoomStyle style = styles[styleIndex];
+                final String floorId = RESOURCE_FLOOR_ID + styleIndex;
+                mapJson.external_resources.add(
+                    ExternalResource.builder()
+                        .path(MAP_GFX_PATH + floorId + PNG_EXT)
+                        .id(RESOURCE_ID_PREFIX + floorId)
+                        .color(style.floorColor.intArray())
+                        .build());
+                createTexture.accept(BASE_PNG_TEXTURE_FILENAME, floorId);
 
-            final String wallId = RESOURCE_WALL_ID + styleId;
-            mapJson.external_resources.add(
-                ExternalResource.builder()
-                    .path(MAP_GFX_PATH + wallId + PNG_EXT)
-                    .id(RESOURCE_ID_PREFIX + wallId)
-                    .domain(DOMAIN_PHYSICAL)
-                    .color(style.wallColor.intArray())
-                    .as_physical(AS_PHYSICAL_DEFAULT)
-                    .build());
-            createTexture.accept(BASE_PNG_TEXTURE_FILENAME, wallId);
+                final String wallId = RESOURCE_WALL_ID + styleIndex;
+                mapJson.external_resources.add(
+                    ExternalResource.builder()
+                        .path(MAP_GFX_PATH + wallId + PNG_EXT)
+                        .id(RESOURCE_ID_PREFIX + wallId)
+                        .domain(DOMAIN_PHYSICAL)
+                        .color(style.wallColor.intArray())
+                        .as_physical(AS_PHYSICAL_DEFAULT)
+                        .build());
+                createTexture.accept(BASE_PNG_TEXTURE_FILENAME, wallId);
 
-            final String patternWallTarget = "style" + styleId + "_pattern_wall";
-            mapJson.external_resources.add(
-                ExternalResource.builder()
-                    .path(MAP_GFX_PATH + patternWallTarget + PNG_EXT)
-                    .id(RESOURCE_ID_PREFIX + patternWallTarget)
-                    .domain(DOMAIN_FOREGROUND)
-                    .color(style.patternColorWall.intArray())
-                    .build());
-            createTexture.accept("pattern" + style.patternIdWall, patternWallTarget);
+                final String patternWallTarget = "style" + styleIndex + "_pattern_wall";
+                mapJson.external_resources.add(
+                    ExternalResource.builder()
+                        .path(MAP_GFX_PATH + patternWallTarget + PNG_EXT)
+                        .id(RESOURCE_ID_PREFIX + patternWallTarget)
+                        .domain(DOMAIN_FOREGROUND)
+                        .color(style.patternColorWall.intArray())
+                        .build());
+                createTexture.accept("pattern" + style.patternIdWall, patternWallTarget);
 
-            final String patternFloorTarget = "style" + styleId + "_pattern_floor";
-            mapJson.external_resources.add(
-                ExternalResource.builder()
-                    .path(MAP_GFX_PATH + patternFloorTarget + PNG_EXT)
-                    .id(RESOURCE_ID_PREFIX + patternFloorTarget)
-                    .color(style.patternColorFloor.intArray())
-                    .build());
-            createTexture.accept("pattern" + style.patternIdFloor, patternFloorTarget);
-        }
-        //endregion
+                final String patternFloorTarget = "style" + styleIndex + "_pattern_floor";
+                mapJson.external_resources.add(
+                    ExternalResource.builder()
+                        .path(MAP_GFX_PATH + patternFloorTarget + PNG_EXT)
+                        .id(RESOURCE_ID_PREFIX + patternFloorTarget)
+                        .color(style.patternColorFloor.intArray())
+                        .build());
+                createTexture.accept("pattern" + style.patternIdFloor, patternFloorTarget);
 
-        //region RESOURCES: CRATES
-        mapJson.external_resources.add(
-            ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_1X1 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + CRATE_1X1)
-                .color(WHITE.intArray())
-                .domain(DOMAIN_PHYSICAL)
-                .stretch_when_resized(true)
-                .size(new Size(104, 104).floatArray())
-                .as_physical(Node.AsPhysical.builder()
-                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_1X1)
-                    .is_see_through(true)
-                    .is_shoot_through(true)
-                    .is_melee_throw_through(true)
-                    .is_throw_through(true)
-                    .build())
-                .build());
-        createTextureSameName.accept(CRATE_1X1);
+                final BiConsumer<Integer, Boolean> createCrate = (
+                    final Integer crateIndex,
+                    final Boolean blocking
+                ) -> {
+                    final String crateName = "style" + styleIndex
+                        + "_crate" + crateIndex
+                        + "_"
+                        + (blocking ? "" : "non")
+                        + "blocking";
+                    mapJson.external_resources.add(
+                        ExternalResource.builder()
+                            .path(MAP_GFX_PATH + crateName + PNG_EXT)
+                            .id(RESOURCE_ID_PREFIX + crateName)
+                            .color(WHITE.intArray())
+                            .domain(DOMAIN_PHYSICAL)
+                            .stretch_when_resized(true)
+                            .size(config.crateMinMaxSize.randomize().floatArray())
+                            .color((blocking
+                                    ? config.crateBlockingMinMaxTint
+                                    : config.crateNonBlockingMinMaxTint)
+                                .randomize()
+                                .intArray()
+                            ).as_physical(Node.AsPhysical.builder()
+                                .custom_shape(Node.AsPhysical.CustomShape.CRATE_SHAPE)
+                                .is_see_through(!blocking)
+                                .is_shoot_through(!blocking)
+                                .is_melee_throw_through(!blocking)
+                                .is_throw_through(!blocking)
+                                .density(nextFloat(0.6f, 1.3f))
+                                .friction(nextFloat(0.0f, 0.5f))
+                                .bounciness(nextFloat(0.1f, 0.6f))
+                                .penetrability(nextFloat(0.0f, 1.0f))
+                                .angular_damping(nextFloat(10f, 100f))
+                                .build())
+                            .build());
+                    createTexture.accept(blocking ? CRATE_BLOCKING : CRATE_NON_BLOCKING, crateName);
+                };
 
-        mapJson.external_resources.add(
-            ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_2X1 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2X1)
-                .color(WHITE.intArray())
-                .domain(DOMAIN_PHYSICAL)
-                .as_physical(Node.AsPhysical.builder()
-                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X1)
-                    .is_see_through(true)
-                    .is_shoot_through(true)
-                    .is_melee_throw_through(true)
-                    .is_throw_through(true)
-                    .build())
-                .build());
-        createTextureSameName.accept(CRATE_2X1);
-
-        mapJson.external_resources.add(
-            ExternalResource.builder()
-                .path(MAP_GFX_PATH + CRATE_2X2 + PNG_EXT)
-                .id(RESOURCE_ID_PREFIX + ExternalResource.CRATE_2X2)
-                .color(WHITE.intArray())
-                .domain(DOMAIN_PHYSICAL)
-                .as_physical(Node.AsPhysical.builder()
-                    .custom_shape(Node.AsPhysical.CustomShape.CRATE_2X2)
-                    .build())
-                .build());
-        createTextureSameName.accept(CRATE_2X2);
+                IntStream.range(0, config.cratesBlockingPerStyle)
+                    .forEach(crateIndex -> createCrate.accept(crateIndex, true));
+                IntStream.range(0, config.cratesNonBlockingPerStyle)
+                    .forEach(crateIndex -> createCrate.accept(crateIndex, false));
+            });
         //endregion
 
         //region SHADOWS 1: ADD SHADOW RESOURCES
@@ -585,6 +582,7 @@ public class Main {
                 .path(MAP_GFX_PATH + SHADOW_FLOOR_LINE + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_LINE)
                 .color(config.shadowTintFloor.intArray())
+                .domain(DOMAIN_FOREGROUND)
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         createTextureSameName.accept(SHADOW_FLOOR_LINE);
@@ -594,6 +592,7 @@ public class Main {
                 .path(MAP_GFX_PATH + SHADOW_FLOOR_CORNER + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_CORNER)
                 .color(config.shadowTintFloor.intArray())
+                .domain(DOMAIN_FOREGROUND)
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         createTextureSameName.accept(SHADOW_FLOOR_CORNER);
@@ -627,8 +626,8 @@ public class Main {
                     || thatPoint.y < 0
                     || thatPoint.x >= mapTilesCrop[0].length
                     || thatPoint.y >= mapTilesCrop.length)
-                    ? MapTile.VIRTUAL_TILE
-                    : mapTilesCrop[thatPoint.y][thatPoint.x];
+                                          ? MapTile.VIRTUAL_TILE
+                                          : mapTilesCrop[thatPoint.y][thatPoint.x];
                 final boolean thatIsWall = otherTile.tileType == WALL;
                 final int hDif = otherTile.height - currentTile.height;
                 final boolean sameStyle = Objects.equals(otherTile.styleIndex, currentTile.styleIndex);
@@ -741,14 +740,14 @@ public class Main {
             // PATTERN
             final RoomStyle style = styles[tile.styleIndex];
             final int patternId = tile.tileType == WALL
-                ? style.patternIdWall
-                : style.patternIdFloor;
+                                  ? style.patternIdWall
+                                  : style.patternIdFloor;
             if (patternId >= 0)
                 mapJson.addTileNode(
                     "style" + tile.styleIndex + "_pattern_"
                         + (tile.tileType == WALL
-                        ? "wall"
-                        : "floor"),
+                           ? "wall"
+                           : "floor"),
                     mapTileIndex.x,
                     mapTileIndex.y,
                     0);
@@ -770,38 +769,38 @@ public class Main {
                 final Room roomUp = rooms[roomIndex.y - 1][roomIndex.x];
                 final int roomLeftOffset = roomLeft.wallVert.offset + roomLeft.wallVert.width;
                 final int roomUpOffset = roomUp.wallHoriz.offset + roomUp.wallHoriz.width;
-                final Point space = new Point(
+                final Point startingRoomSpace = new Point(
                     room.roomSize.w + room.wallVert.offset - roomLeftOffset,
                     room.roomSize.h + room.wallHoriz.offset - roomUpOffset);
-                Point currentSpace = space;
-                while (true) {
-                    currentSpace = currentSpace.add(new Point(-1, -1));
-                    if (currentSpace.x >= 1 && currentSpace.y >= 1) {
-                        mapJson.addNode(Node.builder()
-                            .type(RESOURCE_ID_PREFIX + CRATE_1X1)
-                            .rotation((float) nextInt(1, 359))
-                            .size(new Size(
-                                104 + nextInt(0, 24),
-                                104 + nextInt(0, 24))
-                                .floatArray()
-                            ).pos(new Point(
-                                    (roomLeftOffset - diagonalRoomSizes[0].w + room.roomPosAbs.x + nextInt(0, space.x))
-                                        * TILE_SIZE.w
-                                        + nextInt(-TILE_SIZE.w / 2, TILE_SIZE.w / 2),
-                                    (roomUpOffset - diagonalRoomSizes[0].h + room.roomPosAbs.y + nextInt(0, space.y))
-                                        * TILE_SIZE.h
-                                        + nextInt(-TILE_SIZE.h / 2, TILE_SIZE.h / 2)
-                                ).floatArray()
-                            ).color(new Color(
-                                    nextInt(160, 210),
-                                    nextInt(160, 210),
-                                    nextInt(160, 210),
-                                    255
-                                ).intArray()
-                            ).build());
-                    } else {
-                        break;
-                    }
+                final Size minSpaceLeft = new Size(
+                    nextInt(config.cratesMinMaxSpaceLeftPerRoom.min.w, config.cratesMinMaxSpaceLeftPerRoom.max.w),
+                    nextInt(config.cratesMinMaxSpaceLeftPerRoom.min.h, config.cratesMinMaxSpaceLeftPerRoom.max.h));
+
+                Point currentSpaceLeft = startingRoomSpace;
+                while (currentSpaceLeft.x >= minSpaceLeft.w
+                    && currentSpaceLeft.y >= minSpaceLeft.h
+                ) {
+                    final boolean blocking = nextInt(0, 100) < config.crateBlockingChance;
+                    final String crateName = "style"
+                        + room.styleIndex
+                        + "_crate"
+                        + nextInt(0, blocking ? config.cratesBlockingPerStyle : config.cratesNonBlockingPerStyle)
+                        + "_"
+                        + (blocking ? "" : "non")
+                        + "blocking";
+                    currentSpaceLeft = currentSpaceLeft.add(new Point(-1, -1));
+                    mapJson.addNode(Node.builder()
+                        .type(RESOURCE_ID_PREFIX + crateName)
+                        .rotation((float) nextInt(1, 359))
+                        .pos(new Point(
+                                (roomLeftOffset - diagonalRoomSizes[0].w + room.roomPosAbs.x + nextInt(0, startingRoomSpace.x))
+                                    * TILE_SIZE.w
+                                    + nextInt(-TILE_SIZE.w / 2, TILE_SIZE.w / 2),
+                                (roomUpOffset - diagonalRoomSizes[0].h + room.roomPosAbs.y + nextInt(0, startingRoomSpace.y))
+                                    * TILE_SIZE.h
+                                    + nextInt(-TILE_SIZE.h / 2, TILE_SIZE.h / 2)
+                            ).floatArray()
+                        ).build());
                 }
             });
 
@@ -869,14 +868,14 @@ public class Main {
 
     public static int nextInt(int from, int to) {
         return configRandom.randomEnabled
-            ? baseRandom.nextInt(from, to)
-            : (int) Math.floor((double) (from + to) / 2);
+               ? baseRandom.nextInt(from, to)
+               : (int) Math.floor((double) (from + to) / 2);
     }
 
     public static float nextFloat(float from, float to) {
         return configRandom.randomEnabled
-            ? baseRandom.nextFloat(from, to)
-            : (int) Math.floor((double) (from + to) / 2);
+               ? baseRandom.nextFloat(from, to)
+               : (int) Math.floor((double) (from + to) / 2);
     }
 
     public static List<Point> pointsRectArray(Object[][] array) {
@@ -946,18 +945,26 @@ public class Main {
         Color roomLightTintMax;
         String outputTextFilePath;
         String gameVersion;
+        int crateBlockingChance;
+        MinMaxSize cratesMinMaxSpaceLeftPerRoom;
+        MinMaxColor crateBlockingMinMaxTint;
+        MinMaxColor crateNonBlockingMinMaxTint;
+        MinMaxSize crateMinMaxSize;
+        int cratesNonBlockingPerStyle;
+        int cratesBlockingPerStyle;
 
         public static int parseConfigEntry(String s) {
             String[] split = s.split("_");
             if (split.length > 2) throw new IllegalArgumentException(s + ": split by _ length > 2");
             return split.length == 2
-                ? nextInt(Integer.parseInt(split[0]), Integer.parseInt(split[1]))
-                : Integer.parseInt(split[0]);
+                   ? nextInt(Integer.parseInt(split[0]), Integer.parseInt(split[1]))
+                   : Integer.parseInt(split[0]);
         }
     }
 
     @Value
     public static class ShadowCalcTileInfo {
+
         Entry left;
         Entry up;
         Entry right;
@@ -1107,6 +1114,12 @@ public class Main {
         Size min;
         Size max;
 
+        public Size randomize() {
+            return new Size(
+                nextInt(min.w, max.w),
+                nextInt(min.h, max.h));
+        }
+
         public static class MinMaxSizeDeserializer extends StdDeserializer<MinMaxSize> {
             public MinMaxSizeDeserializer() {
                 super(MinMaxSize.class);
@@ -1121,7 +1134,48 @@ public class Main {
                     jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
                 return new MinMaxSize(
                     new Size(Integer.parseInt(string[0]), Integer.parseInt(string[1])),
-                    new Size(Integer.parseInt(string[2]), Integer.parseInt(string[3])));
+                    new Size(Integer.parseInt(string[2]) + 1, Integer.parseInt(string[3]) + 1));
+            }
+        }
+    }
+
+    @Value
+    @JsonDeserialize(using = MinMaxColor.MinMaxColorDeserializer.class)
+    public static class MinMaxColor {
+        Color min;
+        Color max;
+
+        public Color randomize() {
+            return new Color(
+                nextInt(min.r, max.r),
+                nextInt(min.g, max.g),
+                nextInt(min.b, max.b),
+                nextInt(min.a, max.a));
+        }
+
+        public static class MinMaxColorDeserializer extends StdDeserializer<MinMaxColor> {
+            public MinMaxColorDeserializer() {
+                super(MinMaxColor.class);
+            }
+
+            @Override
+            public MinMaxColor deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                return new MinMaxColor(
+                    new Color(
+                        Integer.parseInt(string[0]),
+                        Integer.parseInt(string[1]),
+                        Integer.parseInt(string[2]),
+                        Integer.parseInt(string[3])),
+                    new Color(
+                        Integer.parseInt(string[4]) + 1,
+                        Integer.parseInt(string[5]) + 1,
+                        Integer.parseInt(string[6]) + 1,
+                        Integer.parseInt(string[7]) + 1));
             }
         }
     }
@@ -1188,22 +1242,22 @@ public class Main {
 
         public void addBlackLine(Point point, int rot, boolean isWall) {
             addTileNode(isWall
-                ? LINE_WALL
-                : LINE_FLOOR, point.x, point.y, rot);
+                        ? LINE_WALL
+                        : LINE_FLOOR, point.x, point.y, rot);
         }
 
         public void addShadowCorner(Point point, int rot, int height, boolean isWall) {
             IntStream.range(0, height).forEach((i) ->
                 addTileNode(isWall
-                    ? SHADOW_WALL_CORNER
-                    : SHADOW_FLOOR_CORNER, point.x, point.y, rot));
+                            ? SHADOW_WALL_CORNER
+                            : SHADOW_FLOOR_CORNER, point.x, point.y, rot));
         }
 
         public void addShadowLine(Point point, int rot, int height, boolean isWall) {
             IntStream.range(0, Math.max(0, height)).forEach((i) ->
                 addTileNode(isWall
-                    ? SHADOW_WALL_LINE
-                    : SHADOW_FLOOR_LINE, point.x, point.y, rot));
+                            ? SHADOW_WALL_LINE
+                            : SHADOW_FLOOR_LINE, point.x, point.y, rot));
         }
 
         public void addBombSiteA(int x, int y, int w, int h) {
@@ -1312,9 +1366,8 @@ public class Main {
                 static final String RESOURCE_WALL_ID = "style_wall";
                 static final String RESOURCE_FLOOR_ID = "style_floor";
                 static final String ROOM_NOISE_CIRCLE = "room_noise_circle";
-                static final String CRATE_1X1 = "crate_1x1";
-                static final String CRATE_2X1 = "crate_2x1";
-                static final String CRATE_2X2 = "crate_2x2";
+                static final String CRATE_NON_BLOCKING = "crate_non_blocking";
+                static final String CRATE_BLOCKING = "crate_blocking";
                 static final String SHADOW_WALL_CORNER = "shadow_wall_corner";
                 static final String SHADOW_WALL_LINE = "shadow_wall_line";
                 static final String SHADOW_FLOOR_LINE = "shadow_floor_line";
@@ -1344,6 +1397,13 @@ public class Main {
                 @JsonProperty("is_shoot_through")
                 @Getter(AccessLevel.NONE)
                 boolean is_shoot_through;
+                Float density; // 0.7
+                Float friction; // 0.0
+                Float bounciness; // 0.2
+                Float penetrability; // 1
+                Float collision_sound_sensitivity; // 1
+                Float linear_damping; // 6.5
+                Float angular_damping; // 6.5
                 CustomShape custom_shape;
 
                 static final AsPhysical AS_PHYSICAL_DEFAULT = AsPhysical.builder()
@@ -1354,24 +1414,12 @@ public class Main {
                 public static class CustomShape {
                     float[][] source_polygon;
 
-                    static final CustomShape CRATE_1X1 = new CustomShape(
+                    static final CustomShape CRATE_SHAPE = new CustomShape(
                         new float[][]{
                             new float[]{-32.0f, -32.0f},
                             new float[]{32.0f, -32.0f},
                             new float[]{32.0f, 32.0f},
                             new float[]{-32.0f, 32.0f}});
-                    static final CustomShape CRATE_2X1 = new CustomShape(
-                        new float[][]{
-                            new float[]{-60.0f, -32.0f},
-                            new float[]{60.0f, -32.0f},
-                            new float[]{60.0f, 32.0f},
-                            new float[]{-60.0f, 32.0f}});
-                    static final CustomShape CRATE_2X2 = new CustomShape(
-                        new float[][]{
-                            new float[]{-60.0f, -60.0f},
-                            new float[]{60.0f, -60.0f},
-                            new float[]{60.0f, 60.0f},
-                            new float[]{-60.0f, 60.0f}});
                 }
             }
 
