@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.slow3586.Main.Settings.Node.ExternalResource;
 import io.vavr.Function1;
 import io.vavr.Function3;
+import io.vavr.collection.Array;
+import io.vavr.jackson.datatype.VavrModule;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,6 +25,9 @@ import lombok.Value;
 import org.apache.commons.lang3.StringUtils;
 import org.jooq.lambda.Sneaky;
 import com.slow3586.Main.Room.RoomStyle;
+import org.jooq.lambda.function.Consumer1;
+import org.jooq.lambda.function.Consumer2;
+import org.jooq.lambda.function.Consumer4;
 
 import java.io.File;
 import java.io.IOException;
@@ -63,6 +68,7 @@ import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_CORN
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_LINE;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_CORNER;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_LINE;
+import static com.slow3586.Main.Size.CRATE_SIZE;
 import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
@@ -72,6 +78,7 @@ public class Main {
     static Configuration config;
 
     static {
+        OBJECT_MAPPER.registerModule(new VavrModule());
         OBJECT_MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         OBJECT_MAPPER.setSerializationInclusion(JsonInclude.Include.NON_NULL);
     }
@@ -447,6 +454,17 @@ public class Main {
             });
         final Consumer<String> createTextureSameName = Sneaky.consumer(
             (filename) -> createTexture.accept(filename, filename));
+        final Function3<Integer, Integer, Boolean, String> getCrateName = (
+            final Integer roomStyleIndex,
+            final Integer crateStyleIndex,
+            final Boolean isBlocking
+        ) -> "style"
+            + roomStyleIndex
+            + "_crate"
+            + crateStyleIndex
+            + "_"
+            + (isBlocking ? "" : "non")
+            + "blocking";
         //endregion
 
         //region RESOURCES: ROOMS
@@ -462,17 +480,6 @@ public class Main {
         //endregion
 
         //region RESOURCES: STYLES
-        final Function3<Integer, Integer, Boolean, String> getCrateName = (
-            final Integer roomStyleIndex,
-            final Integer crateStyleIndex,
-            final Boolean isBlocking
-        ) -> "style"
-            + roomStyleIndex
-            + "_crate"
-            + crateStyleIndex
-            + "_"
-            + (isBlocking ? "" : "non")
-            + "blocking";
         IntStream.range(0, styles.length)
             .boxed()
             .forEach((final Integer roomStyleIndex) -> {
@@ -523,21 +530,25 @@ public class Main {
                         roomStyleIndex,
                         crateStyleIndex,
                         isBlocking);
+                    final float sizeMultiplier = config.crateMinMaxSizeMultiplier.randomize();
                     mapJson.external_resources.add(
                         ExternalResource.builder()
                             .path(MAP_GFX_PATH + crateName + PNG_EXT)
                             .id(RESOURCE_ID_PREFIX + crateName)
-                            .color(WHITE.intArray())
                             .domain(DOMAIN_PHYSICAL)
                             .stretch_when_resized(true)
-                            .size(config.crateMinMaxSize.randomize().floatArray())
+                            .size(CRATE_SIZE
+                                .mul(sizeMultiplier)
+                                .floatArray())
                             .color((isBlocking
                                 ? config.crateBlockingMinMaxTint
                                 : config.crateNonBlockingMinMaxTint)
                                 .randomize()
                                 .intArray()
                             ).as_physical(Node.AsPhysical.builder()
-                                .custom_shape(Node.AsPhysical.CustomShape.CRATE_SHAPE)
+                                .custom_shape(Node.AsPhysical.CustomShape
+                                    .CRATE_SHAPE
+                                    .mul(sizeMultiplier))
                                 .is_see_through(!isBlocking)
                                 .is_shoot_through(!isBlocking)
                                 .is_melee_throw_through(!isBlocking)
@@ -559,7 +570,7 @@ public class Main {
             });
         //endregion
 
-        //region SHADOWS 1: ADD SHADOW RESOURCES
+        //region RESOURCES: SHADOWS
         mapJson.external_resources.add(
             ExternalResource.builder()
                 .path(MAP_GFX_PATH + SHADOW_WALL_CORNER + PNG_EXT)
@@ -585,7 +596,6 @@ public class Main {
                 .path(MAP_GFX_PATH + SHADOW_FLOOR_LINE + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_LINE)
                 .color(config.shadowTintFloor.intArray())
-                .domain(DOMAIN_FOREGROUND)
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         createTextureSameName.accept(SHADOW_FLOOR_LINE);
@@ -595,7 +605,6 @@ public class Main {
                 .path(MAP_GFX_PATH + SHADOW_FLOOR_CORNER + PNG_EXT)
                 .id(RESOURCE_ID_PREFIX + SHADOW_FLOOR_CORNER)
                 .color(config.shadowTintFloor.intArray())
-                .domain(DOMAIN_FOREGROUND)
                 .as_nonphysical(AS_NON_PHYSICAL_DEFAULT)
                 .build());
         createTextureSameName.accept(SHADOW_FLOOR_CORNER);
@@ -619,7 +628,7 @@ public class Main {
         createTextureSameName.accept(LINE_WALL);
         //endregion
 
-        //region SHADOWS 2: CALCULATE SHADOW TILES
+        //region NODES: SHADOWS
         pointsRectArray(mapTilesCrop).forEach(thisPoint -> {
             final MapTile currentTile = mapTilesCrop[thisPoint.y][thisPoint.x];
             final boolean thisIsWall = !isFloor.apply(currentTile);
@@ -641,7 +650,8 @@ public class Main {
                     thatIsWall,
                     sameStyle,
                     needLine,
-                    higher);
+                    higher,
+                    thatPointAdd);
             };
             final ShadowCalcTileInfo info = new ShadowCalcTileInfo(
                 getEntry.apply(Point.LEFT),
@@ -652,27 +662,34 @@ public class Main {
                 getEntry.apply(Point.UP_RIGHT),
                 getEntry.apply(Point.DOWN_LEFT),
                 getEntry.apply(Point.DOWN_RIGHT));
+            final Consumer2<Integer, ShadowCalcTileInfo.Entry> addShadowLine = (rot, infoEntry) ->
+                mapJson.addShadowLine(thisPoint,
+                    rot,
+                    infoEntry.hDif,
+                    thisIsWall,
+                    infoEntry.isWall);
+            final Consumer4<Integer, ShadowCalcTileInfo.Entry, ShadowCalcTileInfo.Entry, ShadowCalcTileInfo.Entry>
+                addShadowCorner = (rot, infoDiag, info0, info1) -> mapJson.addShadowCorner(
+                thisPoint,
+                rot,
+                infoDiag.hDif - Math.max(info0.hDif, info1.hDif),
+                thisIsWall,
+                infoDiag.isWall);
+            final Consumer1<Integer> addBlackLine = (rot) ->
+                mapJson.addBlackLine(thisPoint, rot, thisIsWall);
 
-            mapJson.addShadowLine(thisPoint, 0, info.left.hDif, thisIsWall);
-            mapJson.addShadowLine(thisPoint, 90, info.up.hDif, thisIsWall);
-            mapJson.addShadowLine(thisPoint, 180, info.right.hDif, thisIsWall);
-            mapJson.addShadowLine(thisPoint, -90, info.down.hDif, thisIsWall);
-            mapJson.addShadowCorner(thisPoint, 0,
-                info.downLeft.hDif - Math.max(info.down.hDif, info.left.hDif),
-                thisIsWall);
-            mapJson.addShadowCorner(thisPoint, 90,
-                info.upLeft.hDif - Math.max(info.up.hDif, info.left.hDif),
-                thisIsWall);
-            mapJson.addShadowCorner(thisPoint, 180,
-                info.upRight.hDif - Math.max(info.up.hDif, info.right.hDif),
-                thisIsWall);
-            mapJson.addShadowCorner(thisPoint, -90,
-                info.downRight.hDif - Math.max(info.down.hDif, info.right.hDif),
-                thisIsWall);
-            if (info.left.needLine) mapJson.addBlackLine(thisPoint, 0, thisIsWall);
-            if (info.up.needLine) mapJson.addBlackLine(thisPoint, 90, thisIsWall);
-            if (info.right.needLine) mapJson.addBlackLine(thisPoint, 180, thisIsWall);
-            if (info.down.needLine) mapJson.addBlackLine(thisPoint, -90, thisIsWall);
+            addShadowLine.accept(0, info.left);
+            addShadowLine.accept(90, info.up);
+            addShadowLine.accept(180, info.right);
+            addShadowLine.accept(-90, info.down);
+            addShadowCorner.accept(0, info.downLeft, info.down, info.left);
+            addShadowCorner.accept(90, info.upLeft, info.up, info.left);
+            addShadowCorner.accept(180, info.upRight, info.up, info.right);
+            addShadowCorner.accept(-90, info.downRight, info.down, info.right);
+            if (info.left.needLine) addBlackLine.accept(0);
+            if (info.up.needLine) addBlackLine.accept(90);
+            if (info.right.needLine) addBlackLine.accept(180);
+            if (info.down.needLine) addBlackLine.accept(-90);
         });
         //endregion
 
@@ -695,9 +712,10 @@ public class Main {
                 }
             }
             final Color effectColor = config.roomLightMinMaxTint.randomize();
+            final float sizeMultiplier = config.roomEffectMinMaxSizeMultiplier.randomize();
             final float[] effectSize = {
-                room.roomSize.w * TILE_SIZE.w * (1 + nextFloat(1, 4) / 4),
-                room.roomSize.h * TILE_SIZE.h * (1 + nextFloat(1, 4) / 4)
+                room.roomSize.w * TILE_SIZE.w * sizeMultiplier,
+                room.roomSize.h * TILE_SIZE.h * sizeMultiplier
             };
             mapJson.addNode(Node.builder()
                 .type(RESOURCE_ID_PREFIX + ROOM_NOISE_CIRCLE)
@@ -946,9 +964,10 @@ public class Main {
         MinMaxSize cratesMinMaxSpaceLeftPerRoom;
         MinMaxColor crateBlockingMinMaxTint;
         MinMaxColor crateNonBlockingMinMaxTint;
-        MinMaxSize crateMinMaxSize;
+        MinMaxFloat crateMinMaxSizeMultiplier;
         int cratesNonBlockingPerStyle;
         int cratesBlockingPerStyle;
+        MinMaxFloat roomEffectMinMaxSizeMultiplier;
 
         public static int parseConfigEntry(String s) {
             final String[] split = s.split("_");
@@ -961,7 +980,6 @@ public class Main {
 
     @Value
     public static class ShadowCalcTileInfo {
-
         Entry left;
         Entry up;
         Entry right;
@@ -978,6 +996,62 @@ public class Main {
             boolean sameStyle;
             boolean needLine;
             boolean higher;
+            Point offset;
+        }
+    }
+
+    @Value
+    @JsonDeserialize(using = MinMaxInteger.MinMaxIntegerDeserializer.class)
+    public static class MinMaxInteger {
+        int min;
+        int max;
+
+        public float randomize() {
+            return nextInt(min, max);
+        }
+
+        public static class MinMaxIntegerDeserializer extends StdDeserializer<MinMaxInteger> {
+            public MinMaxIntegerDeserializer() {
+                super(MinMaxSize.class);
+            }
+
+            @Override
+            public MinMaxInteger deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                return new MinMaxInteger(Integer.parseInt(string[0]), Integer.parseInt(string[1]));
+            }
+        }
+    }
+
+
+    @Value
+    @JsonDeserialize(using = MinMaxFloat.MinMaxFloatDeserializer.class)
+    public static class MinMaxFloat {
+        float min;
+        float max;
+
+        public float randomize() {
+            return nextFloat(min, max);
+        }
+
+        public static class MinMaxFloatDeserializer extends StdDeserializer<MinMaxFloat> {
+            public MinMaxFloatDeserializer() {
+                super(MinMaxSize.class);
+            }
+
+            @Override
+            public MinMaxFloat deserialize(
+                final JsonParser jsonParser,
+                final DeserializationContext deserializationContext
+            ) throws IOException, JacksonException {
+                final String[] string = StringUtils.split(
+                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                return new MinMaxFloat(Float.parseFloat(string[0]), Float.parseFloat(string[1]));
+            }
         }
     }
 
@@ -1035,11 +1109,16 @@ public class Main {
     @JsonDeserialize(using = Size.SizeDeserializer.class)
     public static class Size {
         public static Size TILE_SIZE = new Size(128, 128);
+        public static Size CRATE_SIZE = new Size(104, 104);
         int w;
         int h;
 
         public float[] floatArray() {
             return new float[]{(float) w, (float) h};
+        }
+
+        public Size mul(float mul) {
+            return new Size((int) (w * mul), (int) (h * mul));
         }
 
         public Point toPoint() {return new Point(w, h);}
@@ -1259,16 +1338,22 @@ public class Main {
                 : LINE_FLOOR, point.x, point.y, rot);
         }
 
-        public void addShadowCorner(Point point, int rot, int height, boolean isWall) {
+        public void addShadowCorner(
+            Point point,
+            int rot,
+            int height,
+            boolean thisIsWall,
+            boolean thatIsWall
+        ) {
             IntStream.range(0, height).forEach((i) ->
-                addTileNode(isWall
+                addTileNode(thisIsWall || thatIsWall
                     ? SHADOW_WALL_CORNER
                     : SHADOW_FLOOR_CORNER, point.x, point.y, rot));
         }
 
-        public void addShadowLine(Point point, int rot, int height, boolean isWall) {
+        public void addShadowLine(Point point, int rot, int height, boolean thisIsWall, boolean thatIsWall) {
             IntStream.range(0, Math.max(0, height)).forEach((i) ->
-                addTileNode(isWall
+                addTileNode(thisIsWall || thatIsWall
                     ? SHADOW_WALL_LINE
                     : SHADOW_FLOOR_LINE, point.x, point.y, rot));
         }
@@ -1425,14 +1510,19 @@ public class Main {
 
                 @Value
                 public static class CustomShape {
-                    float[][] source_polygon;
+                    Array<Array<Float>> source_polygon;
+
+                    public CustomShape mul(float mul) {
+                        return new CustomShape(
+                            source_polygon.map(row -> row.map(col -> col * mul)));
+                    }
 
                     static final CustomShape CRATE_SHAPE = new CustomShape(
-                        new float[][]{
-                            new float[]{-32.0f, -32.0f},
-                            new float[]{32.0f, -32.0f},
-                            new float[]{32.0f, 32.0f},
-                            new float[]{-32.0f, 32.0f}});
+                        Array.of(
+                            Array.of(-32.0f, -32.0f),
+                            Array.of(32.0f, -32.0f),
+                            Array.of(32.0f, 32.0f),
+                            Array.of(-32.0f, 32.0f)));
                 }
             }
 
