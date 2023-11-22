@@ -46,7 +46,6 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.slow3586.Main.Color.WHITE;
-import static com.slow3586.Main.Configuration.parseConfigEntry;
 import static com.slow3586.Main.MapTile.TileType.WALL;
 import static com.slow3586.Main.Settings.*;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
@@ -73,7 +72,6 @@ import static com.slow3586.Main.Size.TILE_SIZE;
 
 public class Main {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    static ConfigurationRandom configRandom;
     static Random baseRandom;
     static Configuration config;
 
@@ -85,12 +83,9 @@ public class Main {
 
     public static void main(String[] args) throws IOException {
         //region CONFIGURATION
-        final String configRandomStr = Files.readString(Path.of("config_random.json"));
-        configRandom = OBJECT_MAPPER.readValue(configRandomStr, ConfigurationRandom.class);
-        baseRandom = new Random(configRandom.seed);
-
         final String configStr = Files.readString(Path.of("config.json"));
         config = OBJECT_MAPPER.readValue(configStr, Configuration.class);
+        baseRandom = new Random(config.seed);
 
         final Path mapDirectory = Path.of(config.gameDirectoryPath, "user", "projects", config.mapName);
         //endregion
@@ -124,6 +119,12 @@ public class Main {
         final Room[][] rooms = new Room[config.roomsCount.y][config.roomsCount.x];
         pointsRect(0, 0, config.roomsCount.x, config.roomsCount.y)
             .forEach(roomIndex -> {
+                final boolean disabled = Arrays.stream(config.roomsDisabled)
+                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
+                final boolean rightDisabled = Arrays.stream(config.roomsDoorRightDisabled)
+                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
+                final boolean downDisabled = Arrays.stream(config.roomsDoorDownDisabled)
+                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
                 //region CALCULATE ABSOLUTE ROOM POSITION
                 final Point roomPosAbs = new Point(
                     Arrays.stream(diagonalRoomSizes)
@@ -146,41 +147,49 @@ public class Main {
                 //endregion
 
                 //region CALCULATE BASE ROOM SIZE
-                final Size realRoomSize = new Size(
+                final Size roomSpace = new Size(
                     diagonalRoomSizes[roomIndex.x].w + wallOffset.x,
                     diagonalRoomSizes[roomIndex.y].h + wallOffset.y);
                 //endregion
 
                 //region RANDOMIZE DOOR
-                final boolean needVerticalDoor = roomIndex.x > 0 && roomIndex.x < rooms[0].length - 1;
-                final boolean needHorizontalDoor = roomIndex.y > 0 && roomIndex.y < rooms.length - 1;
+                final boolean needVerticalDoor =
+                    !rightDisabled
+                        && roomIndex.x > 0
+                        && roomIndex.x < rooms[0].length - 1;
+                final boolean needHorizontalDoor =
+                    !downDisabled
+                        && roomIndex.y > 0
+                        && roomIndex.y < rooms.length - 1;
                 final Size doorSize = new Size(
                     needHorizontalDoor
                         ? nextInt(config.doorMinMaxWidth.min.w,
-                        Math.min(config.doorMinMaxWidth.max.w, realRoomSize.w))
+                        Math.min(config.doorMinMaxWidth.max.w, roomSpace.w) - 1)
                         : 0,
                     needVerticalDoor
                         ? nextInt(config.doorMinMaxWidth.min.h,
-                        Math.min(config.doorMinMaxWidth.max.h, realRoomSize.h))
+                        Math.min(config.doorMinMaxWidth.max.h, roomSpace.h) - 1)
                         : 0);
                 final Point doorOffset = new Point(
                     needHorizontalDoor
-                        ? nextInt(1, config.doorMinMaxWidth.min.w + realRoomSize.w - doorSize.w)
+                        ? nextInt(1, roomSpace.w - doorSize.w)
                         : 0,
                     needVerticalDoor
-                        ? nextInt(1, config.doorMinMaxWidth.min.h + realRoomSize.h - doorSize.h)
+                        ? nextInt(1, roomSpace.h - doorSize.h)
                         : 0);
                 //endregion
 
                 //region RANDOMIZE STYLE
                 final int styleIndex = nextInt(0, config.styleCount);
-                final Size styleSize = new Size(
-                    roomIndex.x == rooms[0].length - 1
-                        ? 1
-                        : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
-                    roomIndex.y == rooms.length - 1
-                        ? 1
-                        : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
+                final Size styleSize = disabled
+                    ? new Size(roomSpace.w + wallSize.w, roomSpace.h + wallSize.h)
+                    : new Size(
+                        roomIndex.x == rooms[0].length - 1
+                            ? 1
+                            : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
+                        roomIndex.y == rooms.length - 1
+                            ? 1
+                            : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
                 //endregion
 
                 //region PUT ROOM INTO ROOMS ARRAY
@@ -202,7 +211,8 @@ public class Main {
                         doorOffset.y,
                         doorSize.h),
                     styleIndex,
-                    styleSize);
+                    styleSize,
+                    Arrays.asList(config.roomsDisabled).contains(roomIndex.add(Point.UP_LEFT)));
                 //endregion
             });
         //endregion
@@ -222,7 +232,7 @@ public class Main {
                         MapTile.TileType.FLOOR,
                         null,
                         false,
-                        true,
+                        false,
                         null))
                     .toArray(MapTile[]::new)
                 ).toArray(MapTile[][]::new);
@@ -234,35 +244,50 @@ public class Main {
                 final Room room = rooms[roomIndex.y][roomIndex.x];
 
                 //region FILL MAP TILES
-                //region WALL HORIZONTAL
-                pointsRect(
-                    room.roomPosAbs.x,
-                    room.roomPosAbs.y + room.roomSize.h + room.wallHoriz.offset,
-                    room.roomSize.w,
-                    room.wallHoriz.width
-                ).forEach(pointAbs ->
-                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
-                            || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
-                            && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
-                            ? MapTile.TileType.DOOR
-                            : WALL);
-                //endregion
+                if (room.isDisabled()) {
+                    pointsRect(
+                        room.roomPosAbs.x,
+                        room.roomPosAbs.y,
+                        room.roomSize.w + room.wallVert.offset + room.wallVert.width,
+                        room.roomSize.h + room.wallHoriz.offset + room.wallHoriz.width
+                    ).forEach(pointAbs -> {
+                        mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                                ? MapTile.TileType.DOOR
+                                : WALL;
+                        mapTilesUncropped[pointAbs.y][pointAbs.x].disabled = true;
+                    });
+                } else {
+                    //region WALL HORIZONTAL
+                    pointsRect(
+                        room.roomPosAbs.x,
+                        room.roomPosAbs.y + room.roomSize.h + room.wallHoriz.offset,
+                        room.roomSize.w,
+                        room.wallHoriz.width
+                    ).forEach(pointAbs ->
+                        mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                                || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
+                                && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
+                                ? MapTile.TileType.DOOR
+                                : WALL);
+                    //endregion
 
-                //region WALL VERTICAL
-                pointsRect(
-                    room.roomPosAbs.x + room.roomSize.w + room.wallVert.offset,
-                    room.roomPosAbs.y,
-                    room.wallVert.width,
-                    room.roomSize.h
-                ).forEach(pointAbs ->
-                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
-                        (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
-                            || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
-                            && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
-                            ? MapTile.TileType.DOOR
-                            : WALL);
-                //endregion
+                    //region WALL VERTICAL
+                    pointsRect(
+                        room.roomPosAbs.x + room.roomSize.w + room.wallVert.offset,
+                        room.roomPosAbs.y,
+                        room.wallVert.width,
+                        room.roomSize.h
+                    ).forEach(pointAbs ->
+                        mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                                || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
+                                && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
+                                ? MapTile.TileType.DOOR
+                                : WALL);
+                    //endregion
+                }
 
                 //region CARCASS HORIZONTAL
                 pointsRect(
@@ -400,9 +425,11 @@ public class Main {
                     heightJoinerRow.append(mapTile.height);
                     styleIndexJoinerRow.append(mapTile.styleIndex);
                     carcassJoinerRow.append(
-                        mapTile.carcass || point.x == 0 || point.y == 0
-                            ? "#"
-                            : "_");
+                        mapTile.disabled && !mapTile.carcass
+                            ? "X"
+                            : mapTile.carcass || point.x == 0 || point.y == 0
+                                ? "#"
+                                : "_");
                 });
                 wallJoiner.add(wallJoinerRow.toString());
                 heightJoiner.add(heightJoinerRow.toString());
@@ -695,18 +722,18 @@ public class Main {
 
         //region NODES: ROOM EFFECTS
         pointsRectArray(rooms).forEach(point -> {
-            if (point.x == 0 || point.y == 0) return;
             final Room room = rooms[point.y][point.x];
+            if (room.isDisabled() || point.x == 0 || point.y == 0) return;
             final Point roomEffectPosAbs;
             while (true) {
                 final Point roomEffectPos = new Point(
-                    (room.roomPosAbs.x + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].w),
+                    (room.roomPosAbs.x + nextInt(0, room.roomSize.w) - diagonalRoomSizes[0].w),
                     (room.roomPosAbs.y + nextInt(0, room.roomSize.h) - diagonalRoomSizes[0].h));
                 if (roomEffectPos.x >= mapTilesCrop[0].length || roomEffectPos.y >= mapTilesCrop.length) {
                     continue;
                 }
                 final MapTile mapTile = mapTilesCrop[roomEffectPos.y][roomEffectPos.x];
-                if (mapTile.visible && mapTile.tileType != WALL) {
+                if (mapTile.tileType != WALL) {
                     roomEffectPosAbs = roomEffectPos.mul(TILE_SIZE.toPoint());
                     break;
                 }
@@ -865,7 +892,7 @@ public class Main {
         TileType tileType;
         Integer styleIndex;
         boolean carcass;
-        boolean visible;
+        boolean disabled;
         Integer height;
 
         public static final MapTile VIRTUAL_TILE = new MapTile(
@@ -883,13 +910,13 @@ public class Main {
     }
 
     public static int nextInt(int from, int to) {
-        return configRandom.randomEnabled
+        return config.randomEnabled
             ? baseRandom.nextInt(from, to)
             : (int) Math.floor((double) (from + to) / 2);
     }
 
     public static float nextFloat(float from, float to) {
-        return configRandom.randomEnabled
+        return config.randomEnabled
             ? baseRandom.nextFloat(from, to)
             : (int) Math.floor((double) (from + to) / 2);
     }
@@ -926,14 +953,9 @@ public class Main {
 
     @Data
     @JsonDeserialize
-    public static class ConfigurationRandom {
+    public static class Configuration {
         boolean randomEnabled;
         long seed;
-    }
-
-    @Data
-    @JsonDeserialize
-    public static class Configuration {
         MinMaxColor roomLightMinMaxTint;
         String mapName;
         String gameDirectoryPath;
@@ -968,14 +990,9 @@ public class Main {
         int cratesNonBlockingPerStyle;
         int cratesBlockingPerStyle;
         MinMaxFloat roomEffectMinMaxSizeMultiplier;
-
-        public static int parseConfigEntry(String s) {
-            final String[] split = s.split("_");
-            if (split.length > 2) throw new IllegalArgumentException(s + ": split by _ length > 2");
-            return split.length == 2
-                ? nextInt(Integer.parseInt(split[0]), Integer.parseInt(split[1]))
-                : Integer.parseInt(split[0]);
-        }
+        Point[] roomsDisabled;
+        Point[] roomsDoorDownDisabled;
+        Point[] roomsDoorRightDisabled;
     }
 
     @Value
@@ -1098,9 +1115,7 @@ public class Main {
                         " ",
                         ""),
                     ",");
-                return new Point(
-                    parseConfigEntry(string[0]),
-                    parseConfigEntry(string[1]));
+                return new Point(Integer.parseInt(string[0]), Integer.parseInt(string[1]));
             }
         }
     }
@@ -1140,8 +1155,8 @@ public class Main {
                         ""),
                     ",");
                 return new Size(
-                    parseConfigEntry(string[0]),
-                    parseConfigEntry(string[1]));
+                    Integer.parseInt(string[0]),
+                    Integer.parseInt(string[1]));
             }
         }
     }
@@ -1192,10 +1207,10 @@ public class Main {
                         ""),
                     ",");
                 return new Color(
-                    parseConfigEntry(string[0]),
-                    parseConfigEntry(string[1]),
-                    parseConfigEntry(string[2]),
-                    parseConfigEntry(string[3]));
+                    Integer.parseInt(string[0]),
+                    Integer.parseInt(string[1]),
+                    Integer.parseInt(string[2]),
+                    Integer.parseInt(string[3]));
             }
         }
     }
@@ -1282,6 +1297,7 @@ public class Main {
         Rect doorVert;
         int styleIndex;
         Size styleSize;
+        boolean disabled;
 
         public record Rect(
             int offset,
