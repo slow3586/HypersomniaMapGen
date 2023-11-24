@@ -11,10 +11,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.slow3586.Main.Settings.Node.ExternalResource;
-import io.vavr.Function1;
-import io.vavr.Function3;
-import io.vavr.collection.Array;
-import io.vavr.jackson.datatype.VavrModule;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,12 +18,13 @@ import lombok.Data;
 import lombok.Getter;
 import lombok.ToString;
 import lombok.Value;
-import org.apache.commons.lang3.StringUtils;
 import org.jooq.lambda.Sneaky;
 import com.slow3586.Main.Room.RoomStyle;
 import org.jooq.lambda.function.Consumer1;
 import org.jooq.lambda.function.Consumer2;
 import org.jooq.lambda.function.Consumer4;
+import org.jooq.lambda.function.Function1;
+import org.jooq.lambda.function.Function3;
 
 import java.io.File;
 import java.io.IOException;
@@ -76,7 +73,6 @@ public class Main {
     static Configuration config;
 
     static {
-        OBJECT_MAPPER.registerModule(new VavrModule());
         OBJECT_MAPPER.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         OBJECT_MAPPER.setSerializationInclusion(JsonInclude.Include.NON_NULL);
     }
@@ -85,7 +81,7 @@ public class Main {
         //region CONFIGURATION
         final String configStr = Files.readString(Path.of("config.json"));
         config = OBJECT_MAPPER.readValue(configStr, Configuration.class);
-        baseRandom = new Random(config.seed);
+        baseRandom = new Random(config.randomSeed);
 
         final Path mapDirectory = Path.of(config.gameDirectoryPath, "user", "projects", config.mapName);
         //endregion
@@ -102,7 +98,9 @@ public class Main {
             .boxed()
             .map(styleIndex ->
                 new RoomStyle(
-                    styleIndex,
+                    config.styleHeightOverride.length > styleIndex
+                        ? config.styleHeightOverride[styleIndex]
+                        : styleIndex,
                     config.floorMinMaxTintBase
                         .randomize()
                         .add(config.floorTintPerHeight.mul(styleIndex)),
@@ -119,11 +117,11 @@ public class Main {
         final Room[][] rooms = new Room[config.roomsCount.y][config.roomsCount.x];
         pointsRect(0, 0, config.roomsCount.x, config.roomsCount.y)
             .forEach(roomIndex -> {
-                final boolean disabled = Arrays.stream(config.roomsDisabled)
+                final boolean disableRoom = Arrays.stream(config.roomsDisabled)
                     .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
-                final boolean rightDisabled = Arrays.stream(config.roomsDoorRightDisabled)
+                final boolean disableDoorRight = Arrays.stream(config.roomsDoorRightDisabled)
                     .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
-                final boolean downDisabled = Arrays.stream(config.roomsDoorDownDisabled)
+                final boolean disableDoorDown = Arrays.stream(config.roomsDoorDownDisabled)
                     .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
                 //region CALCULATE ABSOLUTE ROOM POSITION
                 final Point roomPosAbs = new Point(
@@ -138,58 +136,49 @@ public class Main {
                 //endregion
 
                 //region RANDOMIZE WALL
-                final Size wallSize = new Size(
-                    nextInt(config.wallMinMaxSize.min.w, config.wallMinMaxSize.max.w),
-                    nextInt(config.wallMinMaxSize.min.h, config.wallMinMaxSize.max.h));
+                final Size wallSize = config.wallMinMaxSize.randomize();
                 final Point wallOffset = new Point(
                     -nextInt(0, Math.min(wallSize.w, config.wallMaxOffset.x)),
                     -nextInt(0, Math.min(wallSize.h, config.wallMaxOffset.y)));
                 //endregion
 
-                //region CALCULATE BASE ROOM SIZE
-                final Size roomSpace = new Size(
-                    diagonalRoomSizes[roomIndex.x].w + wallOffset.x,
-                    diagonalRoomSizes[roomIndex.y].h + wallOffset.y);
-                //endregion
-
                 //region RANDOMIZE DOOR
+                final Size roomFloorSpace = new Size(
+                    diagonalRoomSizes[roomIndex.x].w + wallOffset.y,
+                    diagonalRoomSizes[roomIndex.y].h + wallOffset.x);
                 final boolean needVerticalDoor =
-                    !rightDisabled
+                    !disableDoorRight
                         && roomIndex.x > 0
                         && roomIndex.x < rooms[0].length - 1;
                 final boolean needHorizontalDoor =
-                    !downDisabled
+                    !disableDoorDown
                         && roomIndex.y > 0
                         && roomIndex.y < rooms.length - 1;
                 final Size doorSize = new Size(
                     needHorizontalDoor
-                        ? nextInt(config.doorMinMaxWidth.min.w,
-                        Math.min(config.doorMinMaxWidth.max.w, roomSpace.w) - 1)
+                        ? Math.min(config.doorMinMaxWidth.randomizeWidth(), roomFloorSpace.w - 1)
                         : 0,
                     needVerticalDoor
-                        ? nextInt(config.doorMinMaxWidth.min.h,
-                        Math.min(config.doorMinMaxWidth.max.h, roomSpace.h) - 1)
+                        ? Math.min(config.doorMinMaxWidth.randomizeHeight(), roomFloorSpace.h - 1)
                         : 0);
                 final Point doorOffset = new Point(
                     needHorizontalDoor
-                        ? nextInt(1, roomSpace.w - doorSize.w)
+                        ? nextInt(1, roomFloorSpace.w - doorSize.w + 1)
                         : 0,
                     needVerticalDoor
-                        ? nextInt(1, roomSpace.h - doorSize.h)
+                        ? nextInt(1, roomFloorSpace.h - doorSize.h + 1)
                         : 0);
                 //endregion
 
                 //region RANDOMIZE STYLE
                 final int styleIndex = nextInt(0, config.styleCount);
-                final Size styleSize = disabled
-                    ? new Size(roomSpace.w + wallSize.w, roomSpace.h + wallSize.h)
+                final Size styleSize = disableRoom
+                    ? new Size(roomFloorSpace.w + wallSize.w, roomFloorSpace.h + wallSize.h)
                     : new Size(
-                        roomIndex.x == rooms[0].length - 1
-                            ? 1
-                            : nextInt(config.styleSizeMinMaxSize.min.w, config.styleSizeMinMaxSize.max.w + 1),
-                        roomIndex.y == rooms.length - 1
-                            ? 1
-                            : nextInt(config.styleSizeMinMaxSize.min.h, config.styleSizeMinMaxSize.max.h + 1));
+                        roomIndex.x == config.roomsCount.x - 1 ? 1
+                            : config.styleSizeMinMaxSize.randomizeWidth(),
+                        roomIndex.y == config.roomsCount.y - 1 ? 1
+                            : config.styleSizeMinMaxSize.randomizeHeight());
                 //endregion
 
                 //region PUT ROOM INTO ROOMS ARRAY
@@ -368,28 +357,27 @@ public class Main {
         //region GENERATION: FIX DIAGONAL WALLS TOUCH WITH EMPTY SIDES
         // #_    _#
         // _# OR #_
-        final Function1<MapTile, Boolean> isFloor = (s) -> s.tileType == MapTile.TileType.FLOOR
-            || s.tileType == MapTile.TileType.DOOR;
+        final Function1<MapTile, Boolean> isWall = (s) -> s.tileType == MapTile.TileType.WALL;
         for (int iter = 0; iter < 2; iter++) {
             for (int y = 1; y < mapTilesCrop.length - 1; y++) {
                 for (int x = 1; x < mapTilesCrop[y].length - 1; x++) {
-                    final boolean floor = isFloor.apply(mapTilesCrop[y][x]);
-                    final boolean floorR = isFloor.apply(mapTilesCrop[y][x + 1]);
-                    final boolean floorD = isFloor.apply(mapTilesCrop[y + 1][x]);
-                    final boolean floorRD = isFloor.apply(mapTilesCrop[y + 1][x + 1]);
-                    if ((floor && floorRD && !floorR && !floorD)
-                        || (!floor && !floorRD && floorR && floorD)
+                    final boolean wall = isWall.apply(mapTilesCrop[y][x]);
+                    final boolean wallR = isWall.apply(mapTilesCrop[y][x + 1]);
+                    final boolean wallD = isWall.apply(mapTilesCrop[y + 1][x]);
+                    final boolean wallRD = isWall.apply(mapTilesCrop[y + 1][x + 1]);
+                    if ((wall && wallRD && !wallR && !wallD)
+                        || (!wall && !wallRD && wallR && wallD)
                     ) {
-                        if (!isFloor.apply(mapTilesCrop[y][x]))
+                        if (wall)
                             mapTilesCrop[y][x].height -= config.wallHeight;
                         mapTilesCrop[y][x].tileType = MapTile.TileType.FLOOR;
-                        if (!isFloor.apply(mapTilesCrop[y][x + 1]))
+                        if (wallR)
                             mapTilesCrop[y][x + 1].height -= config.wallHeight;
                         mapTilesCrop[y][x + 1].tileType = MapTile.TileType.FLOOR;
-                        if (!isFloor.apply(mapTilesCrop[y + 1][x]))
+                        if (wallD)
                             mapTilesCrop[y + 1][x].height -= config.wallHeight;
                         mapTilesCrop[y + 1][x].tileType = MapTile.TileType.FLOOR;
-                        if (!isFloor.apply(mapTilesCrop[y + 1][x + 1]))
+                        if (wallRD)
                             mapTilesCrop[y + 1][x + 1].height -= config.wallHeight;
                         mapTilesCrop[y + 1][x + 1].tileType = MapTile.TileType.FLOOR;
                     }
@@ -658,7 +646,7 @@ public class Main {
         //region NODES: SHADOWS
         pointsRectArray(mapTilesCrop).forEach(thisPoint -> {
             final MapTile currentTile = mapTilesCrop[thisPoint.y][thisPoint.x];
-            final boolean thisIsWall = !isFloor.apply(currentTile);
+            final boolean thisIsWall = isWall.apply(currentTile);
             final Function1<Point, ShadowCalcTileInfo.Entry> getEntry = (thatPointAdd) -> {
                 final Point thatPoint = thisPoint.add(thatPointAdd);
                 final MapTile otherTile = (thatPoint.x < 0
@@ -725,6 +713,8 @@ public class Main {
             final Room room = rooms[point.y][point.x];
             if (room.isDisabled() || point.x == 0 || point.y == 0) return;
             final Point roomEffectPosAbs;
+            final int tryCountMax = 20;
+            int tryCount = 0;
             while (true) {
                 final Point roomEffectPos = new Point(
                     (room.roomPosAbs.x + nextInt(0, room.roomSize.w) - diagonalRoomSizes[0].w),
@@ -733,7 +723,7 @@ public class Main {
                     continue;
                 }
                 final MapTile mapTile = mapTilesCrop[roomEffectPos.y][roomEffectPos.x];
-                if (mapTile.tileType != WALL) {
+                if (tryCount++ == tryCountMax || mapTile.tileType != WALL) {
                     roomEffectPosAbs = roomEffectPos.mul(TILE_SIZE.toPoint());
                     break;
                 }
@@ -758,15 +748,17 @@ public class Main {
                 .num_particles(100)
                 .color(effectColor.intArray())
                 .build());
-            mapJson.addNode(Node.builder()
-                .type(ExternalResource.POINT_LIGHT)
-                .pos(roomEffectPosAbs.floatArray())
-                .color(new Color(effectColor.r, effectColor.g, effectColor.b, 15).intArray())
-                .positional_vibration(1.0f)
-                .falloff(new Node.Falloff(
-                    nextInt(250, 500),
-                    nextInt(10, 20))
-                ).build());
+            if (tryCount < tryCountMax) {
+                mapJson.addNode(Node.builder()
+                    .type(ExternalResource.POINT_LIGHT)
+                    .pos(roomEffectPosAbs.floatArray())
+                    .color(new Color(effectColor.r, effectColor.g, effectColor.b, 15).intArray())
+                    .positional_vibration(config.roomLightMinMaxVibration.randomize())
+                    .falloff(new Node.Falloff(
+                        config.roomLightMinMaxRadius.randomize(),
+                        nextInt(10, 20))
+                    ).build());
+            }
         });
         //endregion
 
@@ -879,8 +871,10 @@ public class Main {
             .writerWithDefaultPrettyPrinter()
             .writeValueAsString(mapJson);
         final Path mapJsonFilePath = mapDirectory.resolve(config.mapName + ".json");
+        final Path mapConfigFilePath = mapDirectory.resolve(config.mapName + "_config.json");
         System.out.println("Writing to " + mapJsonFilePath);
         Files.write(mapJsonFilePath, mapJsonString.getBytes());
+        Files.write(mapConfigFilePath, configStr.getBytes());
         //endregion
         //endregion
     }
@@ -910,15 +904,23 @@ public class Main {
     }
 
     public static int nextInt(int from, int to) {
-        return config.randomEnabled
-            ? baseRandom.nextInt(from, to)
-            : (int) Math.floor((double) (from + to) / 2);
+        try {
+            return config.randomEnabled
+                ? baseRandom.nextInt(from, to)
+                : (int) Math.floor((double) (from + to) / 2);
+        } catch (Exception e) {
+            throw new RuntimeException("#nextInt " + from + " to " + to, e);
+        }
     }
 
     public static float nextFloat(float from, float to) {
-        return config.randomEnabled
-            ? baseRandom.nextFloat(from, to)
-            : (int) Math.floor((double) (from + to) / 2);
+        try {
+            return config.randomEnabled
+                ? baseRandom.nextFloat(from, to)
+                : (int) Math.floor((double) (from + to) / 2);
+        } catch (Exception e) {
+            throw new RuntimeException("#nextFloat " + from + " to " + to, e);
+        }
     }
 
     public static List<Point> pointsRectArray(Object[][] array) {
@@ -951,12 +953,20 @@ public class Main {
         return points;
     }
 
+    public static String[] splitJsonEntry(JsonParser jsonParser) {
+        try {
+            return jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText().split(",");
+        } catch (Exception e) {
+            throw new RuntimeException("#split: " + jsonParser, e);
+        }
+    }
+
+
     @Data
     @JsonDeserialize
     public static class Configuration {
         boolean randomEnabled;
-        long seed;
-        MinMaxColor roomLightMinMaxTint;
+        long randomSeed;
         String mapName;
         String gameDirectoryPath;
         boolean cropMap;
@@ -966,12 +976,16 @@ public class Main {
         Point wallMaxOffset;
         MinMaxSize doorMinMaxWidth;
         int styleCount;
+        int[] styleHeightOverride;
         MinMaxSize styleSizeMinMaxSize;
         Color ambientLightColor;
         Color shadowTintFloor;
         Color shadowTintWall;
         Color blackLineFloorTint;
         Color blackLineWallTint;
+        MinMaxColor roomLightMinMaxTint;
+        MinMaxFloat roomLightMinMaxRadius;
+        MinMaxFloat roomLightMinMaxVibration;
         MinMaxColor floorMinMaxTintBase;
         MinMaxColor wallMinMaxTintBase;
         Color floorTintPerHeight;
@@ -1037,8 +1051,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new MinMaxInteger(Integer.parseInt(string[0]), Integer.parseInt(string[1]));
             }
         }
@@ -1065,8 +1078,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new MinMaxFloat(Float.parseFloat(string[0]), Float.parseFloat(string[1]));
             }
         }
@@ -1099,6 +1111,18 @@ public class Main {
             return new float[]{(float) x, (float) y};
         }
 
+        public boolean inX(int x0, int x1) {
+            return x >= x0 && x < x1;
+        }
+
+        public boolean inY(int y0, int y1) {
+            return y >= y0 && x < y1;
+        }
+
+        public boolean inRect(int rx, int ry, int rw, int rh) {
+            return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+        }
+
         public static class PointDeserializer extends StdDeserializer<Point> {
             protected PointDeserializer() {
                 super(Point.class);
@@ -1109,12 +1133,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    StringUtils.replace(
-                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
-                        " ",
-                        ""),
-                    ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new Point(Integer.parseInt(string[0]), Integer.parseInt(string[1]));
             }
         }
@@ -1148,12 +1167,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    StringUtils.replace(
-                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
-                        " ",
-                        ""),
-                    ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new Size(
                     Integer.parseInt(string[0]),
                     Integer.parseInt(string[1]));
@@ -1200,12 +1214,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    StringUtils.replace(
-                        jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(),
-                        " ",
-                        ""),
-                    ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new Color(
                     Integer.parseInt(string[0]),
                     Integer.parseInt(string[1]),
@@ -1227,6 +1236,14 @@ public class Main {
                 nextInt(min.h, max.h));
         }
 
+        public int randomizeWidth() {
+            return nextInt(min.w, max.w);
+        }
+
+        public int randomizeHeight() {
+            return nextInt(min.h, max.h);
+        }
+
         public static class MinMaxSizeDeserializer extends StdDeserializer<MinMaxSize> {
             public MinMaxSizeDeserializer() {
                 super(MinMaxSize.class);
@@ -1237,8 +1254,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new MinMaxSize(
                     new Size(Integer.parseInt(string[0]), Integer.parseInt(string[1])),
                     new Size(Integer.parseInt(string[2]) + 1, Integer.parseInt(string[3]) + 1));
@@ -1270,8 +1286,7 @@ public class Main {
                 final JsonParser jsonParser,
                 final DeserializationContext deserializationContext
             ) throws IOException, JacksonException {
-                final String[] string = StringUtils.split(
-                    jsonParser.getCodec().<JsonNode>readTree(jsonParser).asText(), ",");
+                final String[] string = splitJsonEntry(jsonParser);
                 return new MinMaxColor(
                     new Color(
                         Integer.parseInt(string[0]),
@@ -1526,19 +1541,25 @@ public class Main {
 
                 @Value
                 public static class CustomShape {
-                    Array<Array<Float>> source_polygon;
+                    float[][] source_polygon;
 
                     public CustomShape mul(float mul) {
-                        return new CustomShape(
-                            source_polygon.map(row -> row.map(col -> col * mul)));
+                        float[][] result = new float[4][2];
+                        for (int y = 0; y < 4; y++) {
+                            for (int x = 0; x < 2; x++) {
+                                result[y][x] = CRATE_SHAPE.source_polygon[y][x] * mul;
+                            }
+                        }
+                        return new CustomShape(result);
                     }
 
                     static final CustomShape CRATE_SHAPE = new CustomShape(
-                        Array.of(
-                            Array.of(-32.0f, -32.0f),
-                            Array.of(32.0f, -32.0f),
-                            Array.of(32.0f, 32.0f),
-                            Array.of(-32.0f, 32.0f)));
+                        new float[][]{
+                            new float[]{-32.0f, -32.0f},
+                            new float[]{32.0f, -32.0f},
+                            new float[]{32.0f, 32.0f},
+                            new float[]{-32.0f, 32.0f},
+                        });
                 }
             }
 
