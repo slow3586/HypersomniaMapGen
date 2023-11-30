@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.slow3586.Main.Room.RoomStyle;
 import com.slow3586.Main.Settings.Node.ExternalResource;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -19,32 +20,38 @@ import lombok.Getter;
 import lombok.ToString;
 import lombok.Value;
 import org.jooq.lambda.Sneaky;
-import com.slow3586.Main.Room.RoomStyle;
 import org.jooq.lambda.function.Consumer1;
 import org.jooq.lambda.function.Consumer2;
 import org.jooq.lambda.function.Consumer4;
 import org.jooq.lambda.function.Function1;
 import org.jooq.lambda.function.Function3;
 
+import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.StringJoiner;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static com.slow3586.Main.Color.WHITE;
+import static com.slow3586.Main.MapTile.TileType.DOOR;
 import static com.slow3586.Main.MapTile.TileType.WALL;
-import static com.slow3586.Main.Settings.*;
+import static com.slow3586.Main.Settings.Layer;
+import static com.slow3586.Main.Settings.Node;
 import static com.slow3586.Main.Settings.Node.AsNonPhysical.AS_NON_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.AsPhysical.AS_PHYSICAL_DEFAULT;
 import static com.slow3586.Main.Settings.Node.ExternalResource.BASE_PNG_TEXTURE_FILENAME;
@@ -54,16 +61,17 @@ import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_FOREGROUND
 import static com.slow3586.Main.Settings.Node.ExternalResource.DOMAIN_PHYSICAL;
 import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_FLOOR;
 import static com.slow3586.Main.Settings.Node.ExternalResource.LINE_WALL;
-import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_FLOOR_ID;
 import static com.slow3586.Main.Settings.Node.ExternalResource.MAP_GFX_PATH;
-import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_ID_PREFIX;
 import static com.slow3586.Main.Settings.Node.ExternalResource.PNG_EXT;
+import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_FLOOR_ID;
+import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_ID_PREFIX;
 import static com.slow3586.Main.Settings.Node.ExternalResource.RESOURCE_WALL_ID;
 import static com.slow3586.Main.Settings.Node.ExternalResource.ROOM_NOISE_CIRCLE;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_CORNER;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_FLOOR_LINE;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_CORNER;
 import static com.slow3586.Main.Settings.Node.ExternalResource.SHADOW_WALL_LINE;
+import static com.slow3586.Main.Settings.Playtesting;
 import static com.slow3586.Main.Size.CRATE_SIZE;
 import static com.slow3586.Main.Size.TILE_SIZE;
 
@@ -107,8 +115,8 @@ public class Main {
                     config.wallMinMaxTintBase
                         .randomize()
                         .add(config.wallTintPerHeight.mul(styleIndex)),
-                    nextInt(0, config.patternResourceCount),
-                    nextInt(0, config.patternResourceCount),
+                    nextInt(1, config.patternResourceCount),
+                    nextInt(1, config.patternResourceCount),
                     config.patternMinMaxTintFloor.randomize(),
                     config.patternMinMaxTintWall.randomize())
             ).toArray(RoomStyle[]::new);
@@ -117,12 +125,13 @@ public class Main {
         final Room[][] rooms = new Room[config.roomsCount.y][config.roomsCount.x];
         pointsRect(0, 0, config.roomsCount.x, config.roomsCount.y)
             .forEach(roomIndex -> {
-                final boolean disableRoom = Arrays.stream(config.roomsDisabled)
-                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
-                final boolean disableDoorRight = Arrays.stream(config.roomsDoorRightDisabled)
-                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
-                final boolean disableDoorDown = Arrays.stream(config.roomsDoorDownDisabled)
-                    .anyMatch((point) -> point.add(Point.UP_LEFT).equals(roomIndex));
+                final boolean disableRoom = Arrays.asList(config.roomsDisabled).contains(roomIndex);
+                final boolean disableDoorRight =
+                    Arrays.asList(config.roomsDoorRightDisabled).contains(roomIndex)
+                        || (disableRoom && Arrays.asList(config.roomsDisabled).contains(roomIndex.add(Point.RIGHT)));
+                final boolean disableDoorDown =
+                    Arrays.asList(config.roomsDoorDownDisabled).contains(roomIndex)
+                        || (disableRoom && Arrays.asList(config.roomsDisabled).contains(roomIndex.add(Point.DOWN)));
                 //region CALCULATE ABSOLUTE ROOM POSITION
                 final Point roomPosAbs = new Point(
                     Arrays.stream(diagonalRoomSizes)
@@ -136,7 +145,8 @@ public class Main {
                 //endregion
 
                 //region RANDOMIZE WALL
-                final Size wallSize = config.wallMinMaxSize.randomize();
+                final Size wallSize =
+                    config.wallMinMaxSize.randomize();
                 final Point wallOffset = new Point(
                     -nextInt(0, Math.min(wallSize.w, config.wallMaxOffset.x)),
                     -nextInt(0, Math.min(wallSize.h, config.wallMaxOffset.y)));
@@ -172,13 +182,11 @@ public class Main {
 
                 //region RANDOMIZE STYLE
                 final int styleIndex = nextInt(0, config.styleCount);
-                final Size styleSize = disableRoom
-                    ? new Size(roomFloorSpace.w + wallSize.w, roomFloorSpace.h + wallSize.h)
-                    : new Size(
-                        roomIndex.x == config.roomsCount.x - 1 ? 1
-                            : config.styleSizeMinMaxSize.randomizeWidth(),
-                        roomIndex.y == config.roomsCount.y - 1 ? 1
-                            : config.styleSizeMinMaxSize.randomizeHeight());
+                final Size styleSize = new Size(
+                    roomIndex.x == config.roomsCount.x - 1 ? 1
+                        : config.styleSizeMinMaxSize.randomizeWidth(),
+                    roomIndex.y == config.roomsCount.y - 1 ? 1
+                        : config.styleSizeMinMaxSize.randomizeHeight());
                 //endregion
 
                 //region PUT ROOM INTO ROOMS ARRAY
@@ -201,7 +209,7 @@ public class Main {
                         doorSize.h),
                     styleIndex,
                     styleSize,
-                    Arrays.asList(config.roomsDisabled).contains(roomIndex.add(Point.UP_LEFT)));
+                    disableRoom);
                 //endregion
             });
         //endregion
@@ -210,10 +218,12 @@ public class Main {
         final MapTile[][] mapTilesUncropped =
             pointsRectRows(
                 Arrays.stream(diagonalRoomSizes)
-                    .mapToInt(r -> r.w + config.wallMaxOffset.x)
+                    .mapToInt(r -> r.w
+                        + Math.max(config.styleSizeMinMaxSize.max.w, config.wallMaxOffset.x))
                     .sum() + 1,
                 Arrays.stream(diagonalRoomSizes)
-                    .mapToInt(r -> r.h + config.wallMaxOffset.y)
+                    .mapToInt(r -> r.h
+                        + Math.max(config.styleSizeMinMaxSize.max.h, config.wallMaxOffset.y))
                     .sum() + 1)
                 .stream()
                 .map(row -> row.stream()
@@ -233,50 +243,59 @@ public class Main {
                 final Room room = rooms[roomIndex.y][roomIndex.x];
 
                 //region FILL MAP TILES
+                //region WALL HORIZONTAL
+                pointsRect(
+                    room.roomPosAbs.x,
+                    room.roomPosAbs.y + room.roomSize.h + room.wallHoriz.offset,
+                    room.roomSize.w,
+                    room.wallHoriz.width
+                ).forEach(pointAbs -> {
+                    final boolean isDoorTile = (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                        || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
+                        && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width);
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].disabled = !isDoorTile;
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                        isDoorTile
+                            ? MapTile.TileType.DOOR
+                            : WALL;
+                });
+                //endregion
+
+                //region WALL VERTICAL
+                pointsRect(
+                    room.roomPosAbs.x + room.roomSize.w + room.wallVert.offset,
+                    room.roomPosAbs.y,
+                    room.wallVert.width,
+                    room.roomSize.h
+                ).forEach(pointAbs -> {
+                    final boolean isDoorTile = (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                        || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
+                        && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width);
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].disabled = !isDoorTile;
+                    mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
+                        isDoorTile
+                            ? MapTile.TileType.DOOR
+                            : WALL;
+                });
+                //endregion
+
+                //region DISABLE FLOOR
                 if (room.isDisabled()) {
                     pointsRect(
                         room.roomPosAbs.x,
                         room.roomPosAbs.y,
-                        room.roomSize.w + room.wallVert.offset + room.wallVert.width,
-                        room.roomSize.h + room.wallHoriz.offset + room.wallHoriz.width
+                        room.roomSize.w + room.wallVert.offset,
+                        room.roomSize.h + room.wallHoriz.offset
                     ).forEach(pointAbs -> {
+                        final boolean isDoorTile = mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == DOOR;
+                        mapTilesUncropped[pointAbs.y][pointAbs.x].disabled = !isDoorTile;
                         mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
-                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
+                            isDoorTile
                                 ? MapTile.TileType.DOOR
                                 : WALL;
-                        mapTilesUncropped[pointAbs.y][pointAbs.x].disabled = true;
                     });
-                } else {
-                    //region WALL HORIZONTAL
-                    pointsRect(
-                        room.roomPosAbs.x,
-                        room.roomPosAbs.y + room.roomSize.h + room.wallHoriz.offset,
-                        room.roomSize.w,
-                        room.wallHoriz.width
-                    ).forEach(pointAbs ->
-                        mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
-                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
-                                || (pointAbs.x >= room.roomPosAbs.x + room.doorHoriz.offset
-                                && pointAbs.x < room.roomPosAbs.x + room.doorHoriz.offset + room.doorHoriz.width)
-                                ? MapTile.TileType.DOOR
-                                : WALL);
-                    //endregion
-
-                    //region WALL VERTICAL
-                    pointsRect(
-                        room.roomPosAbs.x + room.roomSize.w + room.wallVert.offset,
-                        room.roomPosAbs.y,
-                        room.wallVert.width,
-                        room.roomSize.h
-                    ).forEach(pointAbs ->
-                        mapTilesUncropped[pointAbs.y][pointAbs.x].tileType =
-                            (mapTilesUncropped[pointAbs.y][pointAbs.x].tileType == MapTile.TileType.DOOR)
-                                || (pointAbs.y >= room.roomPosAbs.y + room.doorVert.offset
-                                && pointAbs.y < room.roomPosAbs.y + room.doorVert.offset + room.doorVert.width)
-                                ? MapTile.TileType.DOOR
-                                : WALL);
-                    //endregion
                 }
+                //endregion
 
                 //region CARCASS HORIZONTAL
                 pointsRect(
@@ -307,7 +326,9 @@ public class Main {
                 ).stream()
                     .map(pointAbs -> mapTilesUncropped[pointAbs.y][pointAbs.x])
                     .forEach(tile -> {
-                        tile.styleIndex = room.styleIndex;
+                        if (tile.styleIndex == null) {
+                            tile.styleIndex = room.styleIndex;
+                        }
                         tile.height = styles[room.styleIndex].height
                             + (tile.tileType == WALL
                             ? config.wallHeight
@@ -774,19 +795,14 @@ public class Main {
             }
 
             // PATTERN
-            final RoomStyle style = styles[tile.styleIndex];
-            final int patternId = tile.tileType == WALL
-                ? style.patternIdWall
-                : style.patternIdFloor;
-            if (patternId >= 0)
-                mapJson.addTileNode(
-                    "style" + tile.styleIndex + "_pattern_"
-                        + (tile.tileType == WALL
-                        ? "wall"
-                        : "floor"),
-                    mapTileIndex.x,
-                    mapTileIndex.y,
-                    0);
+            mapJson.addTileNode(
+                "style" + tile.styleIndex + "_pattern_"
+                    + (tile.tileType == WALL
+                    ? "wall"
+                    : "floor"),
+                mapTileIndex.x,
+                mapTileIndex.y,
+                0);
 
             // BASE
             mapJson.addTileNode(
@@ -809,9 +825,7 @@ public class Main {
                 final Point startingRoomSpace = new Point(
                     room.roomSize.w + room.wallVert.offset - roomLeftOffset,
                     room.roomSize.h + room.wallHoriz.offset - roomUpOffset);
-                final Size minSpaceLeft = new Size(
-                    nextInt(config.cratesMinMaxSpaceLeftPerRoom.min.w, config.cratesMinMaxSpaceLeftPerRoom.max.w),
-                    nextInt(config.cratesMinMaxSpaceLeftPerRoom.min.h, config.cratesMinMaxSpaceLeftPerRoom.max.h));
+                final Size minSpaceLeft = config.cratesMinMaxSpaceLeftPerRoom.randomize();
 
                 Point currentSpaceLeft = startingRoomSpace;
                 while (currentSpaceLeft.x >= minSpaceLeft.w
@@ -820,6 +834,7 @@ public class Main {
                     final boolean blocking = nextInt(0, 100) < config.crateBlockingChance;
                     currentSpaceLeft = currentSpaceLeft.add(new Point(-1, -1));
                     mapJson.addNode(Node.builder()
+                        .size(null)
                         .type(RESOURCE_ID_PREFIX
                             + getCrateName.apply(
                             room.styleIndex,
@@ -867,14 +882,16 @@ public class Main {
         //endregion
 
         //region WRITE JSON FILE
-        final String mapJsonString = OBJECT_MAPPER
-            .writerWithDefaultPrettyPrinter()
-            .writeValueAsString(mapJson);
+        final String mapJsonString = OBJECT_MAPPER.writeValueAsString(mapJson);
         final Path mapJsonFilePath = mapDirectory.resolve(config.mapName + ".json");
-        final Path mapConfigFilePath = mapDirectory.resolve(config.mapName + "_config.json");
         System.out.println("Writing to " + mapJsonFilePath);
         Files.write(mapJsonFilePath, mapJsonString.getBytes());
-        Files.write(mapConfigFilePath, configStr.getBytes());
+        Files.write(Path.of("config_"
+                + config.mapName
+                + "_"
+                + LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyy_HHmmss"))
+                + ".json"),
+            configStr.getBytes());
         //endregion
         //endregion
     }
@@ -1339,6 +1356,7 @@ public class Main {
         List<ExternalResource> external_resources;
         List<Layer> layers;
         List<Node> nodes;
+        public static AtomicInteger nodeIndex = new AtomicInteger(0);
 
         public void addNode(Node node) {
             nodes.add(node);
@@ -1441,7 +1459,7 @@ public class Main {
         @Builder
         public static class Node {
             @Builder.Default
-            String id = UUID.randomUUID().toString();
+            String id = String.valueOf(Map.nodeIndex.getAndIncrement());
             String type;
             float[] pos;
             @Builder.Default
